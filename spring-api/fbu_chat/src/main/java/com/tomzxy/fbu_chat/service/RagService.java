@@ -59,7 +59,12 @@ public class RagService {
         if (request.getDocType() != null)
             payload.put("doc_type", request.getDocType());
 
-        Map<String, Object> aiResponse = aiRestTemplate.postForObject("/chat", payload, Map.class);
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        org.springframework.http.HttpEntity<Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(
+                payload, headers);
+
+        Map<String, Object> aiResponse = aiRestTemplate.postForObject("/chat", entity, Map.class);
 
         String answer = (String) aiResponse.get("answer");
         List<Map<String, Object>> sources = (List<Map<String, Object>>) aiResponse.get("sources");
