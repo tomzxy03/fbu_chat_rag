@@ -12,8 +12,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.client.RestTemplate;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -24,7 +25,7 @@ import java.util.UUID;
 @SuppressWarnings("unchecked")
 public class RagService {
 
-    private final WebClient aiWebClient;
+    private final RestTemplate aiRestTemplate;
     private final ConversationRepository conversationRepo;
     private final MessageRepository messageRepo;
     private final ObjectMapper objectMapper;
@@ -50,7 +51,7 @@ public class RagService {
         messageRepo.save(userMsg);
 
         // 3. Gọi AI Service /chat
-        var payload = new java.util.HashMap<String, Object>();
+        var payload = new HashMap<String, Object>();
         payload.put("query", request.getQuery());
         payload.put("top_k", request.getTopK() != null ? request.getTopK() : 5);
         if (request.getYear() != null)
@@ -58,13 +59,7 @@ public class RagService {
         if (request.getDocType() != null)
             payload.put("doc_type", request.getDocType());
 
-        @SuppressWarnings("rawtypes")
-        Map aiResponse = aiWebClient.post()
-                .uri("/chat")
-                .bodyValue(payload)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
+        Map<String, Object> aiResponse = aiRestTemplate.postForObject("/chat", payload, Map.class);
 
         String answer = (String) aiResponse.get("answer");
         List<Map<String, Object>> sources = (List<Map<String, Object>>) aiResponse.get("sources");
