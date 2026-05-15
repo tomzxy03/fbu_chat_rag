@@ -10,6 +10,10 @@ import com.tomzxy.fbu_chat.repository.ConversationRepository;
 import com.tomzxy.fbu_chat.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -21,14 +25,27 @@ import java.util.UUID;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @SuppressWarnings("unchecked")
 public class RagService {
 
     private final RestTemplate aiRestTemplate;
+    private final String aiBaseUrl;
     private final ConversationRepository conversationRepo;
     private final MessageRepository messageRepo;
     private final ObjectMapper objectMapper;
+
+    public RagService(
+            RestTemplate aiRestTemplate,
+            @Qualifier("aiServiceBaseUrl") String aiBaseUrl,
+            ConversationRepository conversationRepo,
+            MessageRepository messageRepo,
+            ObjectMapper objectMapper) {
+        this.aiRestTemplate = aiRestTemplate;
+        this.aiBaseUrl = aiBaseUrl;
+        this.conversationRepo = conversationRepo;
+        this.messageRepo = messageRepo;
+        this.objectMapper = objectMapper;
+    }
 
     @Transactional
     public ChatResponse chat(ChatRequest request) {
@@ -50,7 +67,7 @@ public class RagService {
                 .build();
         messageRepo.save(userMsg);
 
-        // 3. Gọi AI Service /chat
+        // 3. Gọi AI Service /chat (full URL, explicit JSON)
         var payload = new HashMap<String, Object>();
         payload.put("query", request.getQuery());
         payload.put("top_k", request.getTopK() != null ? request.getTopK() : 5);
@@ -59,12 +76,18 @@ public class RagService {
         if (request.getDocType() != null)
             payload.put("doc_type", request.getDocType());
 
-        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-        org.springframework.http.HttpEntity<Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(
-                payload, headers);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
 
-        Map<String, Object> aiResponse = aiRestTemplate.postForObject("/chat", entity, Map.class);
+        String url = aiBaseUrl + "/chat";
+        log.info("Calling AI service: {} with payload: {}", url, payload);
+
+        Map<String, Object> aiResponse = aiRestTemplate.postForObject(url, entity, Map.class);
+
+        if (aiResponse == null) {
+            throw new RuntimeException("AI service trả về response rỗng");
+        }
 
         String answer = (String) aiResponse.get("answer");
         List<Map<String, Object>> sources = (List<Map<String, Object>>) aiResponse.get("sources");
