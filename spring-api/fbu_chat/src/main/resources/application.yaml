@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: fbu_chat
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/ragdb?sslmode=disable}
+    username: ${SPRING_DATASOURCE_USERNAME:raguser}
+    password: ${SPRING_DATASOURCE_PASSWORD:ragpass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 50MB
+      max-request-size: 55MB
+
+  webflux:
+    base-path: /
+
+server:
+  port: 8080
+  error:
+    include-message: always
+
+app:
+  ai-service:
+    url: ${AI_SERVICE_URL:http://localhost:8001}
+    timeout-seconds: 60
+
+logging:
+  level:
+    com.tomzxy.fbu_chat: INFO
+    org.springframework.web: WARN

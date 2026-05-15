@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+postgres/data/
+spring-api/fbu_chat/target/

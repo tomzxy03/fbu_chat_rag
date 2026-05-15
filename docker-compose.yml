@@ -1,0 +1,58 @@
+services:
+  # ─── AI Service (FastAPI + e5-small-v2) ─────────────────────────
+  # Postgres chạy trên HOST machine (không trong Docker) để tiết kiệm RAM
+  fbu_ai:
+    build: ./ai-service
+    container_name: fbu_ai
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./ai-service:/app
+      # Cache model để không tải lại mỗi lần restart
+      - ai_model_cache:/root/.cache/huggingface
+    environment:
+      - DB_HOST=host.docker.internal # → PostgreSQL trên host
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_PORT=${POSTGRES_PORT:-5432}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 800M # e5-small-v2 chỉ cần ~300MB, giảm từ 1.5G
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s # warm-up e5-small + psycopg2 pool
+    restart: always
+
+  # ─── Spring Boot API ────────────────────────────────────────────
+  api:
+    image: eclipse-temurin:17-jdk-alpine
+    container_name: spring_api
+    working_dir: /app
+    volumes:
+      - ./spring-api/fbu_chat:/app
+    ports:
+      - "8080:8080"
+    command: sh -c "sed -i 's/\r$//' ./mvnw && chmod +x ./mvnw && ./mvnw spring-boot:run"
+    depends_on:
+      fbu_ai:
+        condition: service_healthy
+    environment:
+      # Spring kết nối thẳng vào host postgres
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:${POSTGRES_PORT:-5432}/${POSTGRES_DB}?sslmode=disable
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+      - AI_SERVICE_URL=http://fbu_ai:8001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: on-failure
+
+volumes:
+  ai_model_cache: # HuggingFace model cache persistent
