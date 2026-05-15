@@ -47,14 +47,23 @@ SQL
 
 echo "=== 5. Chạy init.sql ==="
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-psql -U "$DB_USER" -d "$DB_NAME" -h localhost -f "$SCRIPT_DIR/postgres/init.sql"
+if [ ! -f "$SCRIPT_DIR/postgres/init.sql" ]; then
+    echo "Cảnh báo: Không tìm thấy file init.sql tại $SCRIPT_DIR/postgres/. Bỏ qua bước 5."
+else
+    psql -U "$DB_USER" -d "$DB_NAME" -h localhost -f "$SCRIPT_DIR/postgres/init.sql"
+fi
 
 echo "=== 6. Cho phép Docker containers kết nối ==="
 PG_HBA=$(sudo -u postgres psql -t -c "SHOW hba_file;" | tr -d ' ')
 PG_CONF=$(sudo -u postgres psql -t -c "SHOW config_file;" | tr -d ' ')
 
 # Lắng nghe từ tất cả interfaces để Docker host-gateway hoạt động
-sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" "$PG_CONF"
+if grep -q "^listen_addresses = '*'" "$PG_CONF"; then
+    echo "listen_addresses đã được cấu hình là '*'. Bỏ qua."
+else
+    echo "Đang cấu hình listen_addresses = '*'..."
+    sudo sed -i "s/^#\?listen_addresses\s*=.*/listen_addresses = '*'/" "$PG_CONF"
+fi
 
 # Cho phép local Docker subnet kết nối (172.17.0.0/16)
 echo "host  $DB_NAME  $DB_USER  172.17.0.0/16  md5" | sudo tee -a "$PG_HBA"

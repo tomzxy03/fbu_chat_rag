@@ -11,3 +11,7 @@ python-multipart
 langchain-text-splitters
 pypdf
 groq
+# ─── Multi-format processors ───
+python-docx
+pytesseract
+Pillow

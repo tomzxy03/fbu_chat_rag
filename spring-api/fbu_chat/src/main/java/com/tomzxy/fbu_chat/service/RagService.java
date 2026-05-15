@@ -21,6 +21,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("unchecked")
 public class RagService {
 
     private final WebClient aiWebClient;
@@ -49,24 +50,18 @@ public class RagService {
         messageRepo.save(userMsg);
 
         // 3. Gọi AI Service /chat
-        Map<String, Object> aiPayload = Map.of(
-                "query", request.getQuery(),
-                "top_k", request.getTopK() != null ? request.getTopK() : 5,
-                "year", request.getYear() == null ? "" : request.getYear(),
-                "doc_type", request.getDocType() == null ? "" : request.getDocType());
-
-        // Remove null values for cleaner request
-        var cleanPayload = new java.util.HashMap<String, Object>();
-        cleanPayload.put("query", request.getQuery());
-        cleanPayload.put("top_k", request.getTopK() != null ? request.getTopK() : 5);
+        var payload = new java.util.HashMap<String, Object>();
+        payload.put("query", request.getQuery());
+        payload.put("top_k", request.getTopK() != null ? request.getTopK() : 5);
         if (request.getYear() != null)
-            cleanPayload.put("year", request.getYear());
+            payload.put("year", request.getYear());
         if (request.getDocType() != null)
-            cleanPayload.put("doc_type", request.getDocType());
+            payload.put("doc_type", request.getDocType());
 
+        @SuppressWarnings("rawtypes")
         Map aiResponse = aiWebClient.post()
                 .uri("/chat")
-                .bodyValue(cleanPayload)
+                .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block();

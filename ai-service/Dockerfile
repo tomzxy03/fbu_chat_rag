@@ -5,12 +5,14 @@ WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_DEFAULT_TIMEOUT=1000
 
-# Thêm curl vào để Healthcheck hoạt động
+# Thêm curl (healthcheck), tesseract (OCR ảnh), Vietnamese language pack
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     g++ \
     curl \
+    tesseract-ocr \
+    tesseract-ocr-vie \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

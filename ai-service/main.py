@@ -1,17 +1,18 @@
 import os
 import uuid
 import logging
+import tempfile
+import shutil
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, Body, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sentence_transformers import SentenceTransformer
 from psycopg2 import pool
-import pdfplumber
 import json
 from groq import Groq
 
-from process import process_pdf
+from processors import get_processor, get_supported_extensions
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,27 +62,45 @@ def health_check():
     return {"status": "healthy", "model": "e5-small-v2"}
 
 
+@app.get("/ingest/formats")
+def supported_formats():
+    """Trả về danh sách tất cả định dạng file được hỗ trợ."""
+    return {"supported": get_supported_extensions()}
+
+
 @app.post("/ingest")
-async def ingest_pdf(
+async def ingest_file(
     file: UploadFile = File(...),
     year: int = Query(default=2026),
     doc_type: str = Query(default="general"),
 ):
-    """Upload PDF và chia nhỏ thành chunks, embed rồi lưu vào DB."""
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file PDF")
+    """Upload file (PDF, DOCX, image, text, JSON) → detect type → chunk → embed → lưu DB."""
+    filename = file.filename or "unknown"
+    processor = get_processor(filename)
 
-    # Đọc PDF tạm bằng pdfplumber (stream-safe)
-    import tempfile, shutil
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+    if processor is None:
+        supported = ", ".join(get_supported_extensions())
+        raise HTTPException(
+            status_code=400,
+            detail=f"Định dạng file không được hỗ trợ. Các định dạng hỗ trợ: {supported}",
+        )
+
+    # Lưu file tạm để processor đọc
+    ext = os.path.splitext(filename)[1].lower()
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
 
-    chunks = process_pdf(tmp_path)
-    os.unlink(tmp_path)
+    try:
+        chunks = processor.process(tmp_path)
+    except Exception as e:
+        logger.error(f"Processor error for {filename}: {e}")
+        raise HTTPException(status_code=422, detail=f"Lỗi xử lý file: {str(e)}")
+    finally:
+        os.unlink(tmp_path)
 
     if not chunks:
-        raise HTTPException(status_code=422, detail="Không trích xuất được nội dung PDF")
+        raise HTTPException(status_code=422, detail="Không trích xuất được nội dung từ file")
 
     conn = get_conn()
     try:
@@ -94,15 +113,20 @@ async def ingest_pdf(
                     (id, content, embedding, source_file, chunk_index, doc_type, year)
                 VALUES (%s, %s, %s::vector, %s, %s, %s, %s)
                 """,
-                (str(uuid.uuid4()), text, str(embedding), file.filename, idx, doc_type, year),
+                (str(uuid.uuid4()), text, str(embedding), filename, idx, doc_type, year),
             )
         conn.commit()
         cur.close()
     finally:
         put_conn(conn)
 
-    logger.info(f"Ingested {len(chunks)} chunks from {file.filename}")
-    return {"message": f"Nạp thành công {len(chunks)} đoạn từ {file.filename}"}
+    proc_name = type(processor).__name__
+    logger.info(f"Ingested {len(chunks)} chunks from {filename} using {proc_name}")
+    return {
+        "message": f"Nạp thành công {len(chunks)} đoạn từ {filename}",
+        "processor": proc_name,
+        "chunks": len(chunks),
+    }
 
 
 @app.get("/search")
