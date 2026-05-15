@@ -23,9 +23,6 @@ public class DocumentService {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("File không được để trống");
         }
-        if (!java.util.Objects.requireNonNull(file.getOriginalFilename()).toLowerCase().endsWith(".pdf")) {
-            throw new IllegalArgumentException("Chỉ hỗ trợ file PDF");
-        }
 
         MultipartBodyBuilder bodyBuilder = new MultipartBodyBuilder();
         try {
