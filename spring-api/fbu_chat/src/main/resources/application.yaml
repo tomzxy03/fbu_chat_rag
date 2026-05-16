@@ -44,6 +44,9 @@ app:
   ai-service:
     url: ${AI_SERVICE_URL:http://localhost:8001}
     timeout-seconds: 60
+  jwt:
+    secret: ${JWT_SECRET:fbu-chat-super-secret-key-2026-must-be-at-least-32-bytes-long}
+    expiration-ms: 86400000  # 24 hours
 
 logging:
   level:
