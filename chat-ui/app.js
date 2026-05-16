@@ -206,7 +206,11 @@ chatForm.addEventListener('submit', async (e) => {
 function addMessage(role, content) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
-    div.textContent = content;
+    if (role === 'assistant' && typeof marked !== 'undefined') {
+        div.innerHTML = marked.parse(content);
+    } else {
+        div.textContent = content;
+    }
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 }

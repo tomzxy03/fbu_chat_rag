@@ -1,26 +1,30 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FBU Chat - Trợ lý AI Đại học FBU</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
+
 <body>
     <!-- Login Screen -->
     <div id="login-screen" class="login-screen">
         <div class="login-card">
             <div class="login-logo">🎓</div>
             <h1>FBU Chat</h1>
-            <p class="login-subtitle">Trợ lý AI - Đại học FBU Hà Nội</p>
+            <p class="login-subtitle">Trợ lý AI - Đại học FBU</p>
             <div id="login-tab" class="tab-switch">
                 <button class="tab active" data-tab="login">Đăng nhập</button>
                 <button class="tab" data-tab="register">Đăng ký</button>
             </div>
             <form id="login-form" class="auth-form">
                 <input type="text" id="login-username" placeholder="Tên đăng nhập" required autocomplete="username">
-                <input type="password" id="login-password" placeholder="Mật khẩu" required autocomplete="current-password">
+                <input type="password" id="login-password" placeholder="Mật khẩu" required
+                    autocomplete="current-password">
                 <button type="submit" class="btn-primary">Đăng nhập</button>
             </form>
             <form id="register-form" class="auth-form hidden">
@@ -91,4 +95,5 @@
 
     <script src="app.js"></script>
 </body>
+
 </html>

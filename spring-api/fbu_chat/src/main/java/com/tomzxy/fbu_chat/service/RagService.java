@@ -48,15 +48,15 @@ public class RagService {
     }
 
     @Transactional
-    public ChatResponse chat(ChatRequest request) {
+    public ChatResponse chat(ChatRequest request, String userId) {
         // 1. Tìm hoặc tạo conversation
         Conversation conversation;
         if (request.getConversationId() != null) {
             UUID convId = UUID.fromString(request.getConversationId());
             conversation = conversationRepo.findById(convId)
-                    .orElseGet(() -> createConversation(request.getQuery()));
+                    .orElseGet(() -> createConversation(request.getQuery(), userId));
         } else {
-            conversation = createConversation(request.getQuery());
+            conversation = createConversation(request.getQuery(), userId);
         }
 
         // 2. Lưu message của user
@@ -133,11 +133,15 @@ public class RagService {
         return conversationRepo.findAllByOrderByUpdatedAtDesc();
     }
 
-    private Conversation createConversation(String firstQuery) {
+    public List<Conversation> getUserConversations(String userId) {
+        return conversationRepo.findByUserIdOrderByUpdatedAtDesc(userId);
+    }
+
+    private Conversation createConversation(String firstQuery, String userId) {
         String title = firstQuery.length() > 60
                 ? firstQuery.substring(0, 57) + "..."
                 : firstQuery;
-        Conversation conv = Conversation.builder().title(title).build();
+        Conversation conv = Conversation.builder().title(title).userId(userId).build();
         return conversationRepo.save(conv);
     }
 }
