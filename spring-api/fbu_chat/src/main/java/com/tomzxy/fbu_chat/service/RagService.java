@@ -49,23 +49,25 @@ public class RagService {
 
     @Transactional
     public ChatResponse chat(ChatRequest request, String userId) {
-        // 1. Tìm hoặc tạo conversation
-        Conversation conversation;
-        if (request.getConversationId() != null) {
-            UUID convId = UUID.fromString(request.getConversationId());
-            conversation = conversationRepo.findById(convId)
-                    .orElseGet(() -> createConversation(request.getQuery(), userId));
-        } else {
-            conversation = createConversation(request.getQuery(), userId);
-        }
+        // 1. Conversation: chỉ tạo/lưu khi user đã login
+        Conversation conversation = null;
+        if (userId != null) {
+            if (request.getConversationId() != null) {
+                UUID convId = UUID.fromString(request.getConversationId());
+                conversation = conversationRepo.findById(convId)
+                        .orElseGet(() -> createConversation(request.getQuery(), userId));
+            } else {
+                conversation = createConversation(request.getQuery(), userId);
+            }
 
-        // 2. Lưu message của user
-        Message userMsg = Message.builder()
-                .conversation(conversation)
-                .role("user")
-                .content(request.getQuery())
-                .build();
-        messageRepo.save(userMsg);
+            // 2. Lưu message của user
+            Message userMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("user")
+                    .content(request.getQuery())
+                    .build();
+            messageRepo.save(userMsg);
+        }
 
         // 3. Gọi AI Service /chat (full URL, explicit JSON)
         var payload = new HashMap<String, Object>();
@@ -92,21 +94,24 @@ public class RagService {
         String answer = (String) aiResponse.get("answer");
         List<Map<String, Object>> sources = (List<Map<String, Object>>) aiResponse.get("sources");
 
-        // 4. Lưu message của assistant
-        String sourcesJson = "";
-        try {
-            sourcesJson = objectMapper.writeValueAsString(sources);
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to serialize sources", e);
+        // 4. Lưu message assistant (chỉ khi logged in)
+        UUID messageId = null;
+        if (conversation != null) {
+            String sourcesJson = "";
+            try {
+                sourcesJson = objectMapper.writeValueAsString(sources);
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to serialize sources", e);
+            }
+            Message assistantMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("assistant")
+                    .content(answer)
+                    .sources(sourcesJson)
+                    .build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
         }
-
-        Message assistantMsg = Message.builder()
-                .conversation(conversation)
-                .role("assistant")
-                .content(answer)
-                .sources(sourcesJson)
-                .build();
-        messageRepo.save(assistantMsg);
 
         // 5. Build response
         List<ChatResponse.SourceInfo> sourceInfos = sources == null ? List.of()
@@ -117,8 +122,8 @@ public class RagService {
                         .build()).toList();
 
         return ChatResponse.builder()
-                .conversationId(conversation.getId())
-                .messageId(assistantMsg.getId())
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId)
                 .query(request.getQuery())
                 .answer(answer)
                 .sources(sourceInfos)

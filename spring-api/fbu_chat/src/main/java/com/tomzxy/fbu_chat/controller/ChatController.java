@@ -21,14 +21,23 @@ public class ChatController {
 
     private final RagService ragService;
 
+    /**
+     * POST /api/chat — public, anonymous hoặc authenticated
+     * Nếu login: gắn userId, lưu conversation
+     * Nếu anonymous: userId = null, không lưu conversation
+     */
     @PostMapping
     public ResponseEntity<ChatResponse> chat(
             @Valid @RequestBody ChatRequest request,
             @AuthenticationPrincipal User user) {
-        ChatResponse response = ragService.chat(request, user.getId().toString());
+        String userId = (user != null) ? user.getId().toString() : null;
+        ChatResponse response = ragService.chat(request, userId);
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * GET /api/chat/conversations — requires login
+     */
     @GetMapping("/conversations")
     public ResponseEntity<List<?>> getConversations(@AuthenticationPrincipal User user) {
         var conversations = ragService.getUserConversations(user.getId().toString()).stream()
@@ -43,8 +52,13 @@ public class ChatController {
         return ResponseEntity.ok(conversations);
     }
 
+    /**
+     * GET /api/chat/conversations/{id}/messages — requires login
+     */
     @GetMapping("/conversations/{id}/messages")
-    public ResponseEntity<List<MessageDto>> getHistory(@PathVariable UUID id) {
+    public ResponseEntity<List<MessageDto>> getHistory(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User user) {
         List<MessageDto> history = ragService.getHistory(id).stream()
                 .map(m -> MessageDto.builder()
                         .id(m.getId())

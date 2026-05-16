@@ -38,6 +38,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/health").permitAll()
                         .requestMatchers("/", "/favicon.ico").permitAll()
+                        // Chat: public (anonymous allowed)
+                        .requestMatchers(HttpMethod.POST, "/api/chat").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/ingest/formats").permitAll()
+                        // Conversations: requires login
+                        .requestMatchers("/api/chat/conversations/**").authenticated()
+                        // Admin only: document upload
                         .requestMatchers(HttpMethod.POST, "/api/documents/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)

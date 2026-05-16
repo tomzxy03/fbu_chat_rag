@@ -11,12 +11,13 @@
 </head>
 
 <body>
-    <!-- Login Screen -->
-    <div id="login-screen" class="login-screen">
+    <!-- Login Modal (overlay) -->
+    <div id="login-modal" class="modal-overlay hidden">
         <div class="login-card">
+            <button class="modal-close" onclick="closeLoginModal()">✕</button>
             <div class="login-logo">🎓</div>
             <h1>FBU Chat</h1>
-            <p class="login-subtitle">Trợ lý AI - Đại học FBU</p>
+            <p class="login-subtitle">Đăng nhập để lưu lịch sử trò chuyện</p>
             <div id="login-tab" class="tab-switch">
                 <button class="tab active" data-tab="login">Đăng nhập</button>
                 <button class="tab" data-tab="register">Đăng ký</button>
@@ -36,8 +37,8 @@
         </div>
     </div>
 
-    <!-- Chat Screen -->
-    <div id="chat-screen" class="chat-screen hidden">
+    <!-- Chat Screen (always visible) -->
+    <div id="chat-screen" class="chat-screen">
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -64,8 +65,8 @@
                 <p id="upload-status" class="upload-status"></p>
             </div>
             <div class="sidebar-footer">
-                <span id="user-info"></span>
-                <button id="logout-btn" class="btn-logout">Đăng xuất</button>
+                <span id="user-info">Khách</span>
+                <button id="auth-btn" class="btn-login">Đăng nhập</button>
             </div>
         </aside>
 
@@ -73,6 +74,8 @@
         <main class="chat-main">
             <div class="chat-header">
                 <h3 id="chat-title">Cuộc trò chuyện mới</h3>
+                <span id="login-hint" class="login-hint">💡 <a href="#" onclick="openLoginModal(); return false;">Đăng
+                        nhập</a> để lưu lịch sử</span>
             </div>
             <div id="messages" class="messages">
                 <div class="welcome-msg">

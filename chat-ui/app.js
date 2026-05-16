@@ -1,5 +1,5 @@
 // ─── Config ──────────────────────────────────────────────────
-const API = window.location.origin; // Spring API on same host
+const API = window.location.origin;
 
 // ─── State ───────────────────────────────────────────────────
 let token = localStorage.getItem('token');
@@ -7,8 +7,7 @@ let user = JSON.parse(localStorage.getItem('user') || 'null');
 let currentConvId = null;
 
 // ─── DOM Elements ────────────────────────────────────────────
-const loginScreen = document.getElementById('login-screen');
-const chatScreen = document.getElementById('chat-screen');
+const loginModal = document.getElementById('login-modal');
 const loginForm = document.getElementById('login-form');
 const registerForm = document.getElementById('register-form');
 const authError = document.getElementById('auth-error');
@@ -22,8 +21,26 @@ const uploadForm = document.getElementById('upload-form');
 const uploadStatus = document.getElementById('upload-status');
 const chatTitle = document.getElementById('chat-title');
 const userInfo = document.getElementById('user-info');
+const authBtn = document.getElementById('auth-btn');
+const loginHint = document.getElementById('login-hint');
 
-// ─── Auth ────────────────────────────────────────────────────
+// ─── Login Modal ─────────────────────────────────────────────
+function openLoginModal() { loginModal.classList.remove('hidden'); }
+function closeLoginModal() { loginModal.classList.add('hidden'); authError.classList.add('hidden'); }
+
+authBtn.addEventListener('click', () => {
+    if (token) {
+        // Logout
+        token = null; user = null; currentConvId = null;
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        updateAuthUI();
+        resetChat();
+    } else {
+        openLoginModal();
+    }
+});
+
 document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -50,7 +67,9 @@ loginForm.addEventListener('submit', async (e) => {
         user = { username: data.username, role: data.role };
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
-        showChat();
+        closeLoginModal();
+        updateAuthUI();
+        loadConversations();
     } catch (err) {
         showAuthError(err.message);
     }
@@ -68,8 +87,7 @@ registerForm.addEventListener('submit', async (e) => {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || 'Đăng ký thất bại');
-        showAuthError('');
-        // Auto login after register
+        // Auto login
         document.getElementById('login-username').value = username;
         document.getElementById('login-password').value = password;
         document.querySelector('.tab[data-tab="login"]').click();
@@ -84,28 +102,35 @@ function showAuthError(msg) {
     authError.classList.toggle('hidden', !msg);
 }
 
-document.getElementById('logout-btn').addEventListener('click', () => {
-    token = null; user = null; currentConvId = null;
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    loginScreen.classList.remove('hidden');
-    chatScreen.classList.add('hidden');
-});
-
-// ─── Chat ────────────────────────────────────────────────────
-function showChat() {
-    loginScreen.classList.add('hidden');
-    chatScreen.classList.remove('hidden');
-    userInfo.textContent = `${user.username} (${user.role})`;
-    adminSection.classList.toggle('hidden', user.role !== 'ADMIN');
-    loadConversations();
+// ─── UI State ────────────────────────────────────────────────
+function updateAuthUI() {
+    if (token && user) {
+        userInfo.textContent = `${user.username} (${user.role})`;
+        authBtn.textContent = 'Đăng xuất';
+        authBtn.className = 'btn-logout';
+        loginHint.classList.add('hidden');
+        adminSection.classList.toggle('hidden', user.role !== 'ADMIN');
+    } else {
+        userInfo.textContent = 'Khách';
+        authBtn.textContent = 'Đăng nhập';
+        authBtn.className = 'btn-login';
+        loginHint.classList.remove('hidden');
+        adminSection.classList.add('hidden');
+        convList.innerHTML = '<p class="conv-empty">Đăng nhập để xem lịch sử</p>';
+    }
 }
 
+// ─── Chat ────────────────────────────────────────────────────
 async function loadConversations() {
+    if (!token) return;
     try {
         const res = await apiFetch('/api/chat/conversations');
         const convs = await res.json();
         convList.innerHTML = '';
+        if (convs.length === 0) {
+            convList.innerHTML = '<p class="conv-empty">Chưa có cuộc trò chuyện</p>';
+            return;
+        }
         convs.forEach(c => {
             const div = document.createElement('div');
             div.className = 'conv-item' + (c.id === currentConvId ? ' active' : '');
@@ -127,13 +152,13 @@ async function loadConversation(convId, title) {
         messagesEl.innerHTML = '';
         msgs.forEach(m => addMessage(m.role, m.content));
         messagesEl.scrollTop = messagesEl.scrollHeight;
-        loadConversations(); // refresh active state
+        loadConversations();
     } catch (err) {
         console.error('Failed to load history', err);
     }
 }
 
-document.getElementById('new-chat-btn').addEventListener('click', () => {
+function resetChat() {
     currentConvId = null;
     chatTitle.textContent = 'Cuộc trò chuyện mới';
     messagesEl.innerHTML = `
@@ -147,7 +172,11 @@ document.getElementById('new-chat-btn').addEventListener('click', () => {
                 <button class="suggestion" onclick="askSuggestion(this)">Điểm rèn luyện?</button>
             </div>
         </div>`;
-    loadConversations();
+}
+
+document.getElementById('new-chat-btn').addEventListener('click', () => {
+    resetChat();
+    if (token) loadConversations();
 });
 
 chatForm.addEventListener('submit', async (e) => {
@@ -155,7 +184,6 @@ chatForm.addEventListener('submit', async (e) => {
     const query = chatInput.value.trim();
     if (!query) return;
 
-    // Clear welcome message
     const welcome = messagesEl.querySelector('.welcome-msg');
     if (welcome) welcome.remove();
 
@@ -163,7 +191,6 @@ chatForm.addEventListener('submit', async (e) => {
     chatInput.value = '';
     sendBtn.disabled = true;
 
-    // Show typing indicator
     const typing = document.createElement('div');
     typing.className = 'typing-indicator';
     typing.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
@@ -174,18 +201,24 @@ chatForm.addEventListener('submit', async (e) => {
         const body = { query };
         if (currentConvId) body.conversationId = currentConvId;
 
-        const res = await apiFetch('/api/chat', {
+        // Anonymous: gửi không có token, server vẫn trả lời
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch(`${API}/api/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify(body)
         });
         const data = await res.json();
-
         typing.remove();
 
         if (!res.ok) throw new Error(data.message || 'Lỗi hệ thống');
 
-        currentConvId = data.conversationId;
+        // Cập nhật conversationId nếu server trả về (user logged in)
+        if (data.conversationId) {
+            currentConvId = data.conversationId;
+        }
         chatTitle.textContent = query.length > 40 ? query.substring(0, 37) + '...' : query;
 
         let content = data.answer || '';
@@ -193,7 +226,7 @@ chatForm.addEventListener('submit', async (e) => {
             content += '\n\n📎 Nguồn: ' + data.sources.map(s => s.file).join(', ');
         }
         addMessage('assistant', content);
-        loadConversations();
+        if (token) loadConversations();
     } catch (err) {
         typing.remove();
         addMessage('assistant', '❌ ' + err.message);
@@ -257,17 +290,15 @@ async function apiFetch(path, opts = {}) {
     if (token) opts.headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${API}${path}`, opts);
     if (res.status === 401) {
-        // Token expired
-        document.getElementById('logout-btn').click();
+        token = null; user = null;
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        updateAuthUI();
         throw new Error('Phiên đăng nhập hết hạn');
     }
     return res;
 }
 
 // ─── Init ────────────────────────────────────────────────────
-if (token && user) {
-    showChat();
-} else {
-    loginScreen.classList.remove('hidden');
-    chatScreen.classList.add('hidden');
-}
+updateAuthUI();
+if (token) loadConversations();
