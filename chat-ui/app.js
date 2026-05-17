@@ -223,7 +223,8 @@ chatForm.addEventListener('submit', async (e) => {
 
         let content = data.answer || '';
         if (data.sources && data.sources.length > 0) {
-            content += '\n\n📎 Nguồn: ' + data.sources.map(s => s.file).join(', ');
+            const uniqueFiles = [...new Set(data.sources.map(s => s.file))];
+            content += '\n\n📎 Nguồn: ' + uniqueFiles.join(', ');
         }
         addMessage('assistant', content);
         if (token) loadConversations();
@@ -289,7 +290,7 @@ async function apiFetch(path, opts = {}) {
     opts.headers = opts.headers || {};
     if (token) opts.headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${API}${path}`, opts);
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 403) {
         token = null; user = null;
         localStorage.removeItem('token');
         localStorage.removeItem('user');
