@@ -165,7 +165,7 @@ def process_pdf_folder(input_folder, output_folder):
 
 if __name__ == "__main__":
     # Cấu hình đường dẫn folder tại đây
-    INPUT_DIR = "postgres/data/pdf_input"      # Thư mục chứa các file PDF thô
-    OUTPUT_DIR = "postgres/data/pdf_output"  # Thư mục chứa JSON và TXT sau khi xử lý
+    INPUT_DIR = "pdf_input"      # Thư mục chứa các file PDF thô
+    OUTPUT_DIR = "pdf_output"  # Thư mục chứa JSON và TXT sau khi xử lý
     
     process_pdf_folder(INPUT_DIR, OUTPUT_DIR)
