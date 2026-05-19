@@ -2,6 +2,8 @@ package com.tomzxy.fbu_chat.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,8 +31,9 @@ public class Message {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
-    /** JSON array của sources trả về từ AI (lưu dạng text) */
-    @Column(columnDefinition = "TEXT")
+    /** JSON array của sources trả về từ AI (lưu dạng JSONB) */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "JSONB")
     private String sources;
 
     @Column(name = "created_at", updatable = false)
