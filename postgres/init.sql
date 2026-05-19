@@ -2,13 +2,14 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Bảng lưu các chunks tài liệu
+-- Owner: postgres/init.sql (cần pgvector extension trước khi Flyway chạy)
 CREATE TABLE IF NOT EXISTS document_chunks (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     content     TEXT NOT NULL,
     embedding   VECTOR(384),          -- e5-small-v2 = 384 dims
     source_file VARCHAR(255),
     chunk_index INTEGER,
-    doc_type    VARCHAR(100) DEFAULT 'general',  -- 'qche', 'thong_bao', 'lich', 'general'...
+    doc_type    VARCHAR(100) DEFAULT 'general',  -- 'quy_che', 'thong_bao', 'lich', 'general'...
     year        INTEGER DEFAULT 2026,
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
@@ -21,23 +22,5 @@ CREATE INDEX IF NOT EXISTS idx_chunks_embedding
 CREATE INDEX IF NOT EXISTS idx_chunks_year      ON document_chunks (year);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc_type  ON document_chunks (doc_type);
 
--- Bảng hội thoại (Spring Boot quản lý)
-CREATE TABLE IF NOT EXISTS conversations (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    title       VARCHAR(255),
-    user_id     VARCHAR(100),         -- sau khi có auth
-    created_at  TIMESTAMPTZ DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Bảng tin nhắn
-CREATE TABLE IF NOT EXISTS messages (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
-    role            VARCHAR(20) NOT NULL CHECK (role IN ('user','assistant')),
-    content         TEXT NOT NULL,
-    sources         JSONB,            -- sources trả về từ AI
-    created_at      TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages (conversation_id, created_at);
+-- NOTE: conversations và messages được quản lý bởi Flyway (Spring Boot).
+-- Xem: spring-api/src/main/resources/db/migration/V1__create_schema.sql

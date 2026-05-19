@@ -54,12 +54,13 @@ public class ChatController {
 
     /**
      * GET /api/chat/conversations/{id}/messages — requires login
+     * Chỉ trả về messages nếu conversation thuộc về user hiện tại.
      */
     @GetMapping("/conversations/{id}/messages")
     public ResponseEntity<List<MessageDto>> getHistory(
             @PathVariable UUID id,
             @AuthenticationPrincipal User user) {
-        List<MessageDto> history = ragService.getHistory(id).stream()
+        List<MessageDto> history = ragService.getHistoryForUser(id, user.getId().toString()).stream()
                 .map(m -> MessageDto.builder()
                         .id(m.getId())
                         .role(m.getRole())

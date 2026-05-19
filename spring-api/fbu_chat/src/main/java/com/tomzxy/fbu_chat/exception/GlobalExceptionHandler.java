@@ -3,6 +3,10 @@ package com.tomzxy.fbu_chat.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -20,6 +24,37 @@ public class GlobalExceptionHandler {
 
         record ErrorResponse(int status, String error, Object message, Instant timestamp) {
         }
+
+        // --- Auth errors ---
+
+        @ExceptionHandler(AccessDeniedException.class)
+        public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                .body(new ErrorResponse(403, "Forbidden", ex.getMessage(), Instant.now()));
+        }
+
+        @ExceptionHandler(BadCredentialsException.class)
+        public ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException ex) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                                .body(new ErrorResponse(401, "Unauthorized",
+                                                "Sai tên đăng nhập hoặc mật khẩu", Instant.now()));
+        }
+
+        @ExceptionHandler(DisabledException.class)
+        public ResponseEntity<ErrorResponse> handleDisabled(DisabledException ex) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                                .body(new ErrorResponse(401, "Unauthorized",
+                                                "Tài khoản đã bị vô hiệu hóa", Instant.now()));
+        }
+
+        @ExceptionHandler(LockedException.class)
+        public ResponseEntity<ErrorResponse> handleLocked(LockedException ex) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                                .body(new ErrorResponse(401, "Unauthorized",
+                                                "Tài khoản đã bị khóa", Instant.now()));
+        }
+
+        // --- Validation & input errors ---
 
         @ExceptionHandler(MethodArgumentNotValidException.class)
         public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {

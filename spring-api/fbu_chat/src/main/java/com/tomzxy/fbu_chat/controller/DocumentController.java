@@ -20,11 +20,8 @@ public class DocumentController {
      * Upload PDF để embed và lưu vào vector store
      */
     @PostMapping("/ingest")
-    public ResponseEntity<IngestResponse> ingest(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "year", defaultValue = "2026") int year,
-            @RequestParam(value = "docType", defaultValue = "general") String docType) {
-        IngestResponse response = documentService.ingestDocument(file, year, docType);
+    public ResponseEntity<IngestResponse> ingest(@RequestParam("file") MultipartFile file) {
+        IngestResponse response = documentService.ingestDocument(file);
         return ResponseEntity.ok(response);
     }
 }

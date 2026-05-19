@@ -52,3 +52,7 @@ logging:
   level:
     com.tomzxy.fbu_chat: INFO
     org.springframework.web: WARN
+
+groq:
+  api:
+    key: ${GROQ_API_KEY:}
