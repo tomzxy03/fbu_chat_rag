@@ -43,8 +43,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/ingest/formats").permitAll()
                         // Conversations: requires login
                         .requestMatchers("/api/chat/conversations/**").authenticated()
-                        // Admin only: document upload
-                        .requestMatchers(HttpMethod.POST, "/api/documents/**").hasRole("ADMIN")
+                        // Admin only: all document operations (GET, POST, DELETE)
+                        .requestMatchers("/api/documents/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

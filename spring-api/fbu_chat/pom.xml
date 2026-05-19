@@ -68,6 +68,13 @@
 			<optional>true</optional>
 		</dependency>
 
+		<!-- Bucket4j rate limiting -->
+		<dependency>
+			<groupId>com.bucket4j</groupId>
+			<artifactId>bucket4j-core</artifactId>
+			<version>8.10.1</version>
+		</dependency>
+
 		<!-- PGVector — Hibernate 6.4+ native vector module (thay thế com.pgvector:pgvector) -->
 		<dependency>
 			<groupId>org.hibernate.orm</groupId>
