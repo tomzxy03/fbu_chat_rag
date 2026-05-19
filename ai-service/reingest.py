@@ -55,7 +55,11 @@ def main():
         print(f"❌ Thư mục không tồn tại: {pdf_dir}")
         sys.exit(1)
 
-    pdf_files = sorted(pdf_dir.glob("*.pdf"))
+    # Case-insensitive PDF glob
+    pdf_files = sorted(
+        p for p in pdf_dir.iterdir()
+        if p.is_file() and p.suffix.lower() == ".pdf"
+    )
     if not pdf_files:
         print(f"⚠️  Không tìm thấy file PDF nào trong: {pdf_dir}")
         sys.exit(0)
@@ -112,7 +116,7 @@ def main():
         print(f"✅ {filename} — {chunk_count} chunks")
         success_count += 1
 
-    print(f"\n📊 Tổng kết: Thành công: {success_count}, Thất bại: {failure_count}")
+    print(f"\nKết quả: ✅ Thành công: {success_count} | ❌ Thất bại: {failure_count}")
 
 
 if __name__ == "__main__":

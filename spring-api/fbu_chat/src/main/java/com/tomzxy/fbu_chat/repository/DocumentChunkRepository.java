@@ -1,6 +1,7 @@
 package com.tomzxy.fbu_chat.repository;
 
 import com.tomzxy.fbu_chat.dto.ChunkResult;
+import com.tomzxy.fbu_chat.dto.DocumentSummaryProjection;
 import com.tomzxy.fbu_chat.entity.DocumentChunk;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -49,4 +50,20 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
             @Param("topK") int topK,
             @Param("year") Integer year,
             @Param("docType") String docType);
+
+    /**
+     * Tổng hợp danh sách tài liệu đã ingest, group theo source_file.
+     * Dùng Spring Data Projection để tránh constructor mapping phức tạp với native query.
+     * COUNT(*) trả về Long — DocumentSummaryProjection.getChunkCount() là Long.
+     */
+    @Query(value = """
+            SELECT source_file  AS filename,
+                   year,
+                   doc_type     AS docType,
+                   COUNT(*)     AS chunkCount
+            FROM document_chunks
+            GROUP BY source_file, year, doc_type
+            ORDER BY source_file
+            """, nativeQuery = true)
+    List<DocumentSummaryProjection> findAllSummaries();
 }

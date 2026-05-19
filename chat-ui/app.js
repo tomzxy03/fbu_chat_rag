@@ -110,6 +110,7 @@ function updateAuthUI() {
         authBtn.className = 'btn-logout';
         loginHint.classList.add('hidden');
         adminSection.classList.toggle('hidden', user.role !== 'ADMIN');
+        if (user.role === 'ADMIN') loadDocuments(); // Load danh sách tài liệu khi ADMIN login
     } else {
         userInfo.textContent = 'Khách';
         authBtn.textContent = 'Đăng nhập';
@@ -279,11 +280,78 @@ uploadForm.addEventListener('submit', async (e) => {
         uploadStatus.textContent = '✅ ' + data.message;
         uploadStatus.style.color = 'var(--success)';
         fileInput.value = '';
+        loadDocuments(); // Refresh danh sách sau khi upload thành công
     } catch (err) {
         uploadStatus.textContent = '❌ ' + err.message;
         uploadStatus.style.color = 'var(--error)';
     }
 });
+
+// ─── Document Management (Admin) ─────────────────────────────
+async function loadDocuments() {
+    if (!token || !user || user.role !== 'ADMIN') return;
+    const container = document.getElementById('doc-list-container');
+    if (!container) return;
+
+    try {
+        const res = await apiFetch('/api/documents');
+        const docs = await res.json();
+
+        if (!Array.isArray(docs) || docs.length === 0) {
+            container.innerHTML = '<p style="font-size:12px;color:var(--text-secondary);">Chưa có tài liệu nào</p>';
+            return;
+        }
+
+        const rows = docs.map(d => `
+            <tr>
+                <td title="${d.filename}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${d.filename}</td>
+                <td style="font-size:11px;text-align:center;">${d.year ?? '—'}</td>
+                <td style="font-size:11px;text-align:center;">${d.docType ?? '—'}</td>
+                <td style="font-size:11px;text-align:center;">${d.chunkCount}</td>
+                <td style="text-align:center;">
+                    <button onclick="deleteDocument('${d.filename.replace(/'/g, "\\'")}')"
+                        style="font-size:10px;padding:2px 6px;background:var(--error,#e53e3e);color:#fff;border:none;border-radius:4px;cursor:pointer;">
+                        Xóa
+                    </button>
+                </td>
+            </tr>`).join('');
+
+        container.innerHTML = `
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                <thead>
+                    <tr style="border-bottom:1px solid var(--border,#e2e8f0);">
+                        <th style="text-align:left;padding:4px 2px;font-size:11px;">Tên file</th>
+                        <th style="padding:4px 2px;font-size:11px;">Năm</th>
+                        <th style="padding:4px 2px;font-size:11px;">Loại</th>
+                        <th style="padding:4px 2px;font-size:11px;">Chunks</th>
+                        <th style="padding:4px 2px;font-size:11px;"></th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+    } catch (err) {
+        if (container) {
+            container.innerHTML = '<p style="font-size:12px;color:var(--error,#e53e3e);">❌ Không thể tải danh sách tài liệu</p>';
+        }
+    }
+}
+
+async function deleteDocument(filename) {
+    if (!confirm(`Xóa tài liệu "${filename}"?`)) return;
+    try {
+        const res = await apiFetch(`/api/documents/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.message || `HTTP ${res.status}`);
+        }
+        uploadStatus.textContent = `✅ Đã xóa: ${filename}`;
+        uploadStatus.style.color = 'var(--success)';
+        loadDocuments(); // Refresh list
+    } catch (err) {
+        uploadStatus.textContent = `❌ Xóa thất bại: ${err.message}`;
+        uploadStatus.style.color = 'var(--error)';
+    }
+}
 
 // ─── API Helper ──────────────────────────────────────────────
 async function apiFetch(path, opts = {}) {

@@ -1,73 +1,111 @@
 package com.tomzxy.fbu_chat.security;
 
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.Bucket;
+import io.github.bucket4j.ConsumptionProbe;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Simple in-memory rate limiter: 20 requests/minute per user.
- * Only applies to /api/chat (POST).
+ * Rate limiting cho POST /api/chat bằng Bucket4j (in-memory, token bucket).
+ *
+ * - Anonymous (no valid JWT): 10 req/phút theo IP
+ * - Authenticated (valid JWT): 30 req/phút theo username
+ *
+ * Vì filter này chạy TRƯỚC JwtFilter, SecurityContextHolder chưa có auth.
+ * Dùng JwtUtil để parse token thủ công; fallback về IP nếu token invalid.
  */
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    private static final int MAX_REQUESTS = 20;
-    private static final long WINDOW_MS = 60_000; // 1 minute
+    private static final int ANONYMOUS_LIMIT = 10;
+    private static final int AUTHENTICATED_LIMIT = 30;
+    private static final Duration WINDOW = Duration.ofMinutes(1);
 
-    private final Map<String, RateInfo> ratemap = new ConcurrentHashMap<>();
+    private final JwtUtil jwtUtil;
+
+    /** Bucket per client key — key format: "ip:{addr}" hoặc "user:{username}" */
+    private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
             @NonNull HttpServletResponse response,
             @NonNull FilterChain chain) throws ServletException, IOException {
-        // Only rate-limit chat POST
-        if ("POST".equals(request.getMethod()) && request.getRequestURI().equals("/api/chat")) {
-            String key = getClientKey(request);
-            RateInfo info = ratemap.compute(key, (k, v) -> {
-                long now = System.currentTimeMillis();
-                if (v == null || now - v.windowStart > WINDOW_MS) {
-                    return new RateInfo(now, new AtomicInteger(1));
-                }
-                v.count.incrementAndGet();
-                return v;
-            });
 
-            if (info.count.get() > MAX_REQUESTS) {
-                response.setStatus(429);
-                response.setContentType("application/json");
-                response.getWriter().write(
-                        "{\"status\":429,\"error\":\"Too Many Requests\",\"message\":\"Bạn đã gửi quá nhiều tin nhắn. Vui lòng đợi 1 phút.\"}");
-                return;
-            }
+        // Chỉ rate-limit POST /api/chat
+        if (!"POST".equals(request.getMethod()) || !"/api/chat".equals(request.getRequestURI())) {
+            chain.doFilter(request, response);
+            return;
         }
-        chain.doFilter(request, response);
+
+        String clientKey = resolveClientKey(request);
+        boolean isAuthenticated = clientKey.startsWith("user:");
+        Bucket bucket = buckets.computeIfAbsent(clientKey, k -> buildBucket(isAuthenticated));
+
+        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+        if (probe.isConsumed()) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        // Vượt giới hạn — trả 429
+        long waitSeconds = Math.max(1, probe.getNanosToWaitForRefill() / 1_000_000_000);
+        int limit = isAuthenticated ? AUTHENTICATED_LIMIT : ANONYMOUS_LIMIT;
+        String message = String.format(
+                "Bạn đã gửi quá nhiều tin nhắn (%d/%d phút). Vui lòng đợi %d giây trước khi gửi tiếp.",
+                limit, 1, waitSeconds);
+
+        log.warn("Rate limit exceeded for key={}, waitSeconds={}", clientKey, waitSeconds);
+
+        response.setStatus(429);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(String.format(
+                "{\"status\":429,\"error\":\"Too Many Requests\",\"message\":\"%s\"}",
+                message));
     }
 
-    private String getClientKey(HttpServletRequest request) {
-        // Use JWT username if available, else IP
-        String auth = request.getHeader("Authorization");
-        if (auth != null && auth.startsWith("Bearer ")) {
-            return "user:" + auth.substring(7, Math.min(auth.length(), 30));
+    /**
+     * Xác định client key:
+     * - Nếu có Bearer token hợp lệ → "user:{username}"
+     * - Ngược lại → "ip:{remoteAddr}"
+     */
+    private String resolveClientKey(HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            try {
+                String username = jwtUtil.extractUsername(token);
+                if (username != null && !username.isBlank()) {
+                    return "user:" + username;
+                }
+            } catch (Exception e) {
+                // Token invalid hoặc expired — fallback về IP
+                log.debug("JWT parse failed in RateLimitFilter, falling back to IP: {}", e.getMessage());
+            }
         }
         return "ip:" + request.getRemoteAddr();
     }
 
-    private static class RateInfo {
-        final long windowStart;
-        final AtomicInteger count;
-
-        RateInfo(long windowStart, AtomicInteger count) {
-            this.windowStart = windowStart;
-            this.count = count;
-        }
+    private Bucket buildBucket(boolean authenticated) {
+        int capacity = authenticated ? AUTHENTICATED_LIMIT : ANONYMOUS_LIMIT;
+        Bandwidth limit = Bandwidth.builder()
+                .capacity(capacity)
+                .refillIntervally(capacity, WINDOW)
+                .build();
+        return Bucket.builder().addLimit(limit).build();
     }
 }

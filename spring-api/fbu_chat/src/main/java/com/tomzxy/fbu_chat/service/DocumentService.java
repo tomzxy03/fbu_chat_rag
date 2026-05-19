@@ -1,6 +1,7 @@
 package com.tomzxy.fbu_chat.service;
 
 import com.tomzxy.fbu_chat.dto.ChunkCandidate;
+import com.tomzxy.fbu_chat.dto.DocumentSummaryDto;
 import com.tomzxy.fbu_chat.dto.EmbeddingRequest;
 import com.tomzxy.fbu_chat.dto.EmbeddingResponse;
 import com.tomzxy.fbu_chat.dto.IngestResponse;
@@ -170,5 +171,32 @@ public class DocumentService {
             return "thong_bao";
         }
         return "general";
+    }
+
+    // ─── Document Management ──────────────────────────────────────────────────
+
+    /**
+     * Trả về danh sách tài liệu đã ingest, group theo source_file.
+     * Mỗi entry chứa filename, year, docType và số chunk.
+     */
+    public List<DocumentSummaryDto> listDocuments() {
+        return chunkRepository.findAllSummaries().stream()
+                .map(p -> DocumentSummaryDto.builder()
+                        .filename(p.getFilename())
+                        .year(p.getYear())
+                        .docType(p.getDocType())
+                        .chunkCount(p.getChunkCount() != null ? p.getChunkCount().intValue() : 0)
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Xóa toàn bộ chunks của một tài liệu theo tên file.
+     * Idempotent: không throw nếu file không tồn tại.
+     */
+    @Transactional
+    public void deleteDocument(String filename) {
+        log.info("Xóa tài liệu: {}", filename);
+        chunkRepository.deleteBySourceFile(filename);
     }
 }
