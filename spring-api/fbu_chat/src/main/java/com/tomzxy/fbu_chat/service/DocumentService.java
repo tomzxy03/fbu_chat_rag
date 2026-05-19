@@ -86,7 +86,11 @@ public class DocumentService {
                 chunk.setContent(cand.getContent());
                 chunk.setSourceFile(filename);
                 chunk.setChunkIndex(cand.getChunkIndex());
-                chunk.setEmbedding(embeddings.get(k));
+                // Chuyển List<Float> → float[] theo yêu cầu của hibernate-vector
+                List<Float> vec = embeddings.get(k);
+                float[] arr = new float[vec.size()];
+                for (int j = 0; j < vec.size(); j++) arr[j] = vec.get(j);
+                chunk.setEmbedding(arr);
                 chunk.setDocType(docType);
                 chunk.setYear(year);
                 entitiesToSave.add(chunk);
