@@ -38,7 +38,10 @@ spring:
 server:
   port: 8080
   error:
-    include-message: always
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
 
 app:
   ai-service:

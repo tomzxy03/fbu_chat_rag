@@ -85,10 +85,38 @@ public class GlobalExceptionHandler {
                                                 "AI service trả về lỗi: " + ex.getStatusCode(), Instant.now()));
         }
 
+        @ExceptionHandler(org.springframework.web.client.ResourceAccessException.class)
+        public ResponseEntity<ErrorResponse> handleServiceUnavailable(
+                        org.springframework.web.client.ResourceAccessException ex) {
+                log.error("Service unreachable: {}", ex.getMessage());
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                                .body(new ErrorResponse(503, "Service Unavailable",
+                                                "Không thể kết nối đến AI service. Vui lòng thử lại sau.",
+                                                Instant.now()));
+        }
+
+        @ExceptionHandler(RuntimeException.class)
+        public ResponseEntity<ErrorResponse> handleRuntime(RuntimeException ex) {
+                log.error("Runtime exception: {}", ex.getMessage(), ex);
+                // Một số RuntimeException có message thân thiện từ service layer — trả về trực tiếp
+                // Các lỗi kỹ thuật (PGobject, Hibernate...) sẽ bị che bởi handleGeneric
+                String msg = ex.getMessage();
+                if (msg != null && msg.length() < 200 && !msg.contains("org.") && !msg.contains("com.")) {
+                        return ResponseEntity.internalServerError()
+                                        .body(new ErrorResponse(500, "Error", msg, Instant.now()));
+                }
+                return ResponseEntity.internalServerError()
+                                .body(new ErrorResponse(500, "Error",
+                                                "Đã xảy ra lỗi khi xử lý yêu cầu. Vui lòng thử lại sau.",
+                                                Instant.now()));
+        }
+
         @ExceptionHandler(Exception.class)
         public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
-                log.error("Unhandled exception", ex);
+                log.error("Unhandled exception: {}", ex.getMessage(), ex);
+                // Không expose raw exception message ra ngoài — chỉ log nội bộ
                 return ResponseEntity.internalServerError()
-                                .body(new ErrorResponse(500, "Internal Error", ex.getMessage(), Instant.now()));
+                                .body(new ErrorResponse(500, "Internal Error",
+                                                "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.", Instant.now()));
         }
 }
