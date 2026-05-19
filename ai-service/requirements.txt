@@ -11,8 +11,11 @@ python-multipart
 langchain-text-splitters
 pypdf
 groq
+requests
 # ─── Multi-format processors ───
 python-docx
 pytesseract
 Pillow
 pdf2image
+# ─── OCR pre-processing (scan PDF → searchable PDF) ───
+ocrmypdf

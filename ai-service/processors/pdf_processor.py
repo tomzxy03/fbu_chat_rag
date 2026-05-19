@@ -1,6 +1,8 @@
 import json
 import os
 import glob
+import subprocess
+import tempfile
 import pdfplumber
 import pytesseract
 from pdf2image import convert_from_path
@@ -13,45 +15,99 @@ class PdfProcessor(BaseProcessor):
 
     def __init__(self):
         super().__init__()
-        pass
+
+    def _is_scan_pdf(self, file_path: str) -> bool:
+        """Kiểm tra PDF có phải file scan (không có text layer) không."""
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                # Lấy mẫu 3 trang đầu để check
+                sample_pages = pdf.pages[:3]
+                total_text = "".join(
+                    (p.extract_text() or "") for p in sample_pages
+                )
+                return len(total_text.strip()) < 50
+        except Exception:
+            return True  # Nếu không đọc được, coi là scan
+
+    def _ocrmypdf_preprocess(self, file_path: str) -> str:
+        """
+        Dùng OCRmyPDF để tạo PDF có text layer từ PDF scan.
+        Trả về path của file PDF mới (temp file).
+        """
+        tmp_out = tempfile.mktemp(suffix=".pdf")
+        try:
+            result = subprocess.run(
+                [
+                    "ocrmypdf",
+                    "--language", "vie+eng",
+                    "--output-type", "pdf",
+                    "--optimize", "0",      # Không optimize để nhanh hơn
+                    "--skip-text",          # Bỏ qua trang đã có text
+                    "--quiet",
+                    file_path,
+                    tmp_out,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 phút max
+            )
+            if result.returncode == 0 and os.path.exists(tmp_out):
+                return tmp_out
+            else:
+                # OCRmyPDF fail → fallback về Tesseract cũ
+                print(f"    [!] OCRmyPDF failed: {result.stderr[:200]}")
+                if os.path.exists(tmp_out):
+                    os.unlink(tmp_out)
+                return file_path
+        except subprocess.TimeoutExpired:
+            print(f"    [!] OCRmyPDF timeout")
+            if os.path.exists(tmp_out):
+                os.unlink(tmp_out)
+            return file_path
+        except FileNotFoundError:
+            # ocrmypdf chưa được cài → fallback
+            print(f"    [!] ocrmypdf not found, falling back to Tesseract")
+            return file_path
 
     def extract_text(self, file_path: str) -> str:
         """Thỏa mãn interface BaseProcessor để tích hợp vào FastAPI /ingest"""
-        data = self.extract_all(file_path)
-        
+        # Nếu là PDF scan → pre-process bằng OCRmyPDF trước
+        processed_path = file_path
+        tmp_created = False
+        if self._is_scan_pdf(file_path):
+            print(f"    [i] Scan PDF detected, running OCRmyPDF...")
+            processed_path = self._ocrmypdf_preprocess(file_path)
+            tmp_created = (processed_path != file_path)
+
+        try:
+            data = self.extract_all(processed_path)
+        finally:
+            # Xóa temp file nếu đã tạo
+            if tmp_created and os.path.exists(processed_path):
+                os.unlink(processed_path)
+
         # Chuyển đổi dict thành markdown string cho RAG chunking
         lines = [f"# TÀI LIỆU: {data['metadata']['source_file']}"]
         for page in data["pages"]:
             lines.append(f"\n## TRANG {page['page_number']}")
             if page["content"]:
                 lines.append(page["content"])
-            
+
             if page["tables"]:
                 for idx, table in enumerate(page["tables"]):
                     lines.append(f"### Bảng {idx + 1}:")
                     if not table: continue
-                    
+
                     header = table[0]
                     lines.append("| " + " | ".join(header) + " |")
                     lines.append("| " + " | ".join(["---"] * len(header)) + " |")
-                    
+
                     for row in table[1:]:
                         row_padded = row + [""] * (len(header) - len(row))
                         lines.append("| " + " | ".join(row_padded) + " |")
                     lines.append("\n")
-                    
-        return "\n".join(lines)
 
-    def _perform_ocr(self, file_path, page_index):
-        """Chỉ OCR đúng trang bị thiếu text để tiết kiệm tài nguyên máy"""
-        try:
-            images = convert_from_path(file_path, first_page=page_index+1, last_page=page_index+1)
-            if images:
-                # 'vie+eng' giúp nhận diện tốt cả tiếng Việt và các mã ngành tiếng Anh
-                return pytesseract.image_to_string(images[0], lang='vie+eng')
-        except Exception as e:
-            print(f"    [!] Lỗi OCR trang {page_index+1}: {e}")
-        return ""
+        return "\n".join(lines)
 
     def extract_all(self, file_path: str):
         """Trích xuất text và bảng từ một file PDF"""
@@ -75,17 +131,12 @@ class PdfProcessor(BaseProcessor):
                 clean_tables = []
                 if tables:
                     for table in tables:
-                        # Lọc bỏ None, xóa xuống dòng thừa để giữ cấu trúc hàng
                         clean_table = [
                             [(cell.replace('\n', ' ').strip() if cell else "") for cell in row]
-                            for row in table if any(row) # Chỉ lấy hàng có dữ liệu
+                            for row in table if any(row)
                         ]
                         if clean_table:
                             clean_tables.append(clean_table)
-
-                # Nếu không có text (file scan), kích hoạt OCR
-                if not text or len(text.strip()) < 20:
-                    text = self._perform_ocr(file_path, i)
 
                 results["pages"].append({
                     "page_number": i + 1,

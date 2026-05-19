@@ -36,7 +36,12 @@ def parse_args():
     parser.add_argument(
         "--pdf-dir",
         default="./pdf_input",
-        help="Thư mục chứa PDF (default: ./pdf_input)",
+        help="Thư mục chứa PDF hoặc TXT (default: ./pdf_input)",
+    )
+    parser.add_argument(
+        "--ext",
+        default=".pdf",
+        help="Extension file cần ingest: .pdf, .txt, .json (default: .pdf)",
     )
     parser.add_argument(
         "--delay",
@@ -66,13 +71,13 @@ def main():
 
     pdf_files = sorted(
         p for p in pdf_dir.iterdir()
-        if p.is_file() and p.suffix.lower() == ".pdf"
+        if p.is_file() and p.suffix.lower() == args.ext.lower()
     )
     if not pdf_files:
         print(f"⚠️  Không tìm thấy file PDF nào trong: {pdf_dir}")
         sys.exit(0)
 
-    print(f"📂 Tìm thấy {len(pdf_files)} file PDF trong {pdf_dir}")
+    print(f"📂 Tìm thấy {len(pdf_files)} file {args.ext} trong {pdf_dir}")
     print(f"⏱  Delay giữa các file: {args.delay}s\n")
 
     ingest_url = f"{args.base_url.rstrip('/')}/api/documents/ingest"
@@ -93,13 +98,13 @@ def main():
             failure_count += 1
             continue
 
-        # Gửi request
+        # Gửi request — timeout cao vì PDF lớn + OCR có thể mất nhiều phút trên máy yếu
         try:
             response = requests.post(
                 ingest_url,
                 headers=headers,
                 files={"file": (filename, file_bytes, "application/pdf")},
-                timeout=180,  # 3 phút — PDF lớn cần thời gian
+                timeout=600,  # 10 phút — đủ cho OCR file scan nhiều trang
             )
         except requests.exceptions.ConnectionError as e:
             print(f"  ❌ Lỗi kết nối: {e}\n")
