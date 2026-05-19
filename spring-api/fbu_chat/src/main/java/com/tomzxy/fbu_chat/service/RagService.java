@@ -4,10 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tomzxy.fbu_chat.dto.ChatRequest;
 import com.tomzxy.fbu_chat.dto.ChatResponse;
+import com.tomzxy.fbu_chat.dto.ChunkResult;
 import com.tomzxy.fbu_chat.dto.EmbeddingRequest;
 import com.tomzxy.fbu_chat.dto.EmbeddingResponse;
 import com.tomzxy.fbu_chat.entity.Conversation;
-import com.tomzxy.fbu_chat.entity.DocumentChunk;
 import com.tomzxy.fbu_chat.entity.Message;
 import com.tomzxy.fbu_chat.repository.ConversationRepository;
 import com.tomzxy.fbu_chat.repository.DocumentChunkRepository;
@@ -109,13 +109,11 @@ public class RagService {
         log.info("Searching pgvector database (topK={}, year={}, docType={})...",
                 topK, request.getYear(), request.getDocType());
 
-        List<DocumentChunk> topContexts;
+        List<ChunkResult> topContexts;
         if (request.getYear() != null || request.getDocType() != null) {
-            // Có filter: dùng query có WHERE clause
             topContexts = docRepo.findTopRelatedContextsFiltered(
                     vectorStr, topK, request.getYear(), request.getDocType());
         } else {
-            // Không filter: dùng query đơn giản hơn
             topContexts = docRepo.findTopRelatedContexts(vectorStr, topK);
         }
 

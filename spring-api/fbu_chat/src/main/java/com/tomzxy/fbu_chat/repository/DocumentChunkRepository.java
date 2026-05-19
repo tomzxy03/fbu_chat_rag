@@ -1,5 +1,6 @@
 package com.tomzxy.fbu_chat.repository;
 
+import com.tomzxy.fbu_chat.dto.ChunkResult;
 import com.tomzxy.fbu_chat.entity.DocumentChunk;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -17,23 +18,33 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
     @Query("DELETE FROM DocumentChunk d WHERE d.sourceFile = :sourceFile")
     void deleteBySourceFile(String sourceFile);
 
-    /** Tìm kiếm vector không filter — dùng khi year và docType đều null */
-    @Query(value = "SELECT * FROM document_chunks ORDER BY embedding <=> CAST(:queryVector AS vector) LIMIT :topK",
-            nativeQuery = true)
-    List<DocumentChunk> findTopRelatedContexts(String queryVector, int topK);
+    /**
+     * Vector search không filter.
+     * SELECT chỉ các cột cần thiết — bỏ embedding để tránh lỗi PGvector type mapping.
+     */
+    @Query(value = """
+            SELECT content, source_file AS sourceFile, year, doc_type AS docType
+            FROM document_chunks
+            ORDER BY embedding <=> CAST(:queryVector AS vector)
+            LIMIT :topK
+            """, nativeQuery = true)
+    List<ChunkResult> findTopRelatedContexts(
+            @Param("queryVector") String queryVector,
+            @Param("topK") int topK);
 
     /**
-     * Tìm kiếm vector với filter tùy chọn theo year và/hoặc docType.
+     * Vector search với filter tùy chọn theo year và/hoặc docType.
      * Truyền null để bỏ qua filter tương ứng.
      */
     @Query(value = """
-            SELECT * FROM document_chunks
+            SELECT content, source_file AS sourceFile, year, doc_type AS docType
+            FROM document_chunks
             WHERE (:year    IS NULL OR year     = :year)
               AND (:docType IS NULL OR doc_type = :docType)
             ORDER BY embedding <=> CAST(:queryVector AS vector)
             LIMIT :topK
             """, nativeQuery = true)
-    List<DocumentChunk> findTopRelatedContextsFiltered(
+    List<ChunkResult> findTopRelatedContextsFiltered(
             @Param("queryVector") String queryVector,
             @Param("topK") int topK,
             @Param("year") Integer year,
