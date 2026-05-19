@@ -71,6 +71,9 @@ class PdfProcessor(BaseProcessor):
 
     def extract_text(self, file_path: str) -> str:
         """Thỏa mãn interface BaseProcessor để tích hợp vào FastAPI /ingest"""
+        # Lưu tên file gốc trước khi có thể bị thay bằng temp path
+        original_filename = os.path.basename(file_path)
+
         # Nếu là PDF scan → pre-process bằng OCRmyPDF trước
         processed_path = file_path
         tmp_created = False
@@ -80,7 +83,7 @@ class PdfProcessor(BaseProcessor):
             tmp_created = (processed_path != file_path)
 
         try:
-            data = self.extract_all(processed_path)
+            data = self.extract_all(processed_path, original_filename=original_filename)
         finally:
             # Xóa temp file nếu đã tạo
             if tmp_created and os.path.exists(processed_path):
@@ -109,11 +112,16 @@ class PdfProcessor(BaseProcessor):
 
         return "\n".join(lines)
 
-    def extract_all(self, file_path: str):
-        """Trích xuất text và bảng từ một file PDF"""
+    def extract_all(self, file_path: str, original_filename: str = None):
+        """Trích xuất text và bảng từ một file PDF.
+        
+        original_filename: tên file gốc để lưu vào metadata,
+        dùng khi file_path là temp file từ OCRmyPDF.
+        """
+        source_name = original_filename or os.path.basename(file_path)
         results = {
             "metadata": {
-                "source_file": os.path.basename(file_path),
+                "source_file": source_name,
                 "processed_at": datetime.now().isoformat(),
                 "total_pages": 0
             },
