@@ -64,9 +64,9 @@ public class DocumentService {
 
         log.info("Đã extract {} chunks từ Python.", candidates.size());
 
-        // 3. Xử lý theo batch
+        // 3. Xử lý theo batch nhỏ để tránh OOM trên AI service
         List<DocumentChunk> entitiesToSave = new ArrayList<>();
-        int batchSize = 20;
+        int batchSize = 10; // Giảm từ 20 → 10 để tránh spike RAM trên AI service
 
         for (int i = 0; i < candidates.size(); i += batchSize) {
             int toIndex = Math.min(i + batchSize, candidates.size());

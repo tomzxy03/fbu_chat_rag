@@ -22,7 +22,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 800M # e5-small-v2 chỉ cần ~300MB, giảm từ 1.5G
+          memory: 1500M
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
       interval: 15s
