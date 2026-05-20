@@ -12,6 +12,7 @@ import com.tomzxy.fbu_chat.entity.Message;
 import com.tomzxy.fbu_chat.repository.ConversationRepository;
 import com.tomzxy.fbu_chat.repository.DocumentChunkRepository;
 import com.tomzxy.fbu_chat.repository.MessageRepository;
+import com.tomzxy.fbu_chat.util.TsQueryBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -35,12 +36,24 @@ import java.util.stream.Collectors;
 @SuppressWarnings("unchecked")
 public class RagService {
 
+    // Cosine distance threshold: chunk có distance > 0.65 bị loại
+    // 0.65 phù hợp hơn 0.5 cho chunk dài 1200 tokens — vector bị "pha loãng"
+    private static final double SIMILARITY_THRESHOLD = 0.65;
+
+    // Số chunk tối đa lấy về — đủ để cover nhiều điều khoản liên quan
+    private static final int DEFAULT_TOP_K = 8;
+
+    // Số lượt hội thoại gần nhất đưa vào context (để LLM hiểu follow-up)
+    private static final int HISTORY_WINDOW = 4;
+
     private final RestTemplate aiRestTemplate;
     private final String aiBaseUrl;
     private final ConversationRepository conversationRepo;
     private final MessageRepository messageRepo;
     private final DocumentChunkRepository docRepo;
     private final ObjectMapper objectMapper;
+    // Reuse RestTemplate cho Groq — tránh tạo mới mỗi request
+    private final RestTemplate groqRestTemplate = new RestTemplate();
 
     @Value("${groq.api.key:}")
     private String groqApiKey;
@@ -104,17 +117,40 @@ public class RagService {
         List<Float> queryVector = embResponse.getBody().getEmbeddings().get(0);
         String vectorStr = "[" + queryVector.stream().map(String::valueOf).collect(Collectors.joining(",")) + "]";
 
-        // 4. Tìm kiếm ngữ cảnh trong DB
-        int topK = request.getTopK() != null ? request.getTopK() : 5;
-        log.info("Searching pgvector database (topK={}, year={}, docType={})...",
-                topK, request.getYear(), request.getDocType());
+        // 4. Tìm kiếm ngữ cảnh trong DB — Hybrid search (vector + full-text RRF)
+        int topK = request.getTopK() != null ? request.getTopK() : DEFAULT_TOP_K;
+        String tsQuery = TsQueryBuilder.build(request.getQuery());
+        log.info("Searching (topK={}, threshold={}, tsQuery={}, year={}, docType={})...",
+                topK, SIMILARITY_THRESHOLD, tsQuery, request.getYear(), request.getDocType());
 
         List<ChunkResult> topContexts;
-        if (request.getYear() != null || request.getDocType() != null) {
-            topContexts = docRepo.findTopRelatedContextsFiltered(
-                    vectorStr, topK, request.getYear(), request.getDocType());
+
+        if (tsQuery != null) {
+            // Hybrid: vector + full-text RRF — tốt nhất cho câu hỏi có từ khóa cụ thể
+            try {
+                topContexts = docRepo.hybridSearch(vectorStr, tsQuery, topK, SIMILARITY_THRESHOLD);
+            } catch (Exception e) {
+                // Fallback về pure vector nếu tsquery syntax error
+                log.warn("Hybrid search failed ({}), falling back to vector only", e.getMessage());
+                topContexts = docRepo.findTopRelatedContexts(vectorStr, topK, SIMILARITY_THRESHOLD);
+            }
         } else {
-            topContexts = docRepo.findTopRelatedContexts(vectorStr, topK);
+            // Pure vector nếu query chỉ có stop words
+            topContexts = docRepo.findTopRelatedContexts(vectorStr, topK, SIMILARITY_THRESHOLD);
+        }
+
+        // Áp filter year/docType nếu có (post-filter sau hybrid search)
+        if (!topContexts.isEmpty() && (request.getYear() != null || request.getDocType() != null)) {
+            topContexts = topContexts.stream()
+                    .filter(c -> request.getYear() == null || request.getYear().equals(c.getYear()))
+                    .filter(c -> request.getDocType() == null || request.getDocType().equals(c.getDocType()))
+                    .collect(Collectors.toList());
+        }
+
+        // Fallback: nếu không có kết quả, thử lại với threshold rộng hơn
+        if (topContexts.isEmpty()) {
+            log.info("No results, retrying with relaxed threshold...");
+            topContexts = docRepo.findTopRelatedContexts(vectorStr, topK, 2.0);
         }
 
         String contextText;
@@ -145,7 +181,6 @@ public class RagService {
             throw new RuntimeException("GROQ_API_KEY chưa được cấu hình ở môi trường Spring Boot");
         }
 
-        RestTemplate groqTemplate = new RestTemplate();
         HttpHeaders groqHeaders = new HttpHeaders();
         groqHeaders.setBearerAuth(groqApiKey);
         groqHeaders.setContentType(MediaType.APPLICATION_JSON);
@@ -154,18 +189,35 @@ public class RagService {
         groqMsg1.put("role", "system");
         groqMsg1.put("content", systemPrompt);
 
+        // Thêm lịch sử hội thoại gần nhất để LLM hiểu context follow-up
+        List<Map<String, Object>> groqMessages = new java.util.ArrayList<>();
+        groqMessages.add(groqMsg1);
+        if (conversation != null) {
+            List<Message> recentHistory = messageRepo
+                    .findByConversationIdOrderByCreatedAtAsc(conversation.getId());
+            // Lấy HISTORY_WINDOW * 2 messages gần nhất (user + assistant pairs)
+            int fromIdx = Math.max(0, recentHistory.size() - HISTORY_WINDOW * 2);
+            for (Message histMsg : recentHistory.subList(fromIdx, recentHistory.size())) {
+                Map<String, Object> hm = new HashMap<>();
+                hm.put("role", histMsg.getRole());
+                hm.put("content", histMsg.getContent());
+                groqMessages.add(hm);
+            }
+        }
+
         Map<String, Object> groqMsg2 = new HashMap<>();
         groqMsg2.put("role", "user");
         groqMsg2.put("content", userPrompt);
+        groqMessages.add(groqMsg2);
 
         Map<String, Object> groqPayload = new HashMap<>();
         groqPayload.put("model", "llama-3.3-70b-versatile");
-        groqPayload.put("messages", List.of(groqMsg1, groqMsg2));
+        groqPayload.put("messages", groqMessages);
         groqPayload.put("temperature", 0.3);
         groqPayload.put("max_tokens", 1024);
 
         HttpEntity<Map<String, Object>> groqEntity = new HttpEntity<>(groqPayload, groqHeaders);
-        Map groqResp = groqTemplate.postForObject("https://api.groq.com/openai/v1/chat/completions", groqEntity,
+        Map groqResp = groqRestTemplate.postForObject("https://api.groq.com/openai/v1/chat/completions", groqEntity,
                 Map.class);
 
         if (groqResp == null || !groqResp.containsKey("choices")) {
@@ -208,12 +260,20 @@ public class RagService {
             conversationRepo.save(conversation);
         }
 
-        // 8. Build response
-        List<ChatResponse.SourceInfo> sourceInfos = sources.stream().map(s -> ChatResponse.SourceInfo.builder()
-                .file((String) s.get("file"))
-                .year(s.get("year") instanceof Integer ? (Integer) s.get("year") : null)
-                .docType((String) s.get("doc_type"))
-                .build()).toList();
+        // 8. Build response — deduplicate sources theo filename
+        List<ChatResponse.SourceInfo> sourceInfos = sources.stream()
+                .collect(Collectors.toMap(
+                        s -> (String) s.get("file"),
+                        s -> ChatResponse.SourceInfo.builder()
+                                .file((String) s.get("file"))
+                                .year(s.get("year") instanceof Integer ? (Integer) s.get("year") : null)
+                                .docType((String) s.get("doc_type"))
+                                .build(),
+                        (existing, duplicate) -> existing  // giữ entry đầu tiên nếu trùng
+                ))
+                .values()
+                .stream()
+                .toList();
 
         return ChatResponse.builder()
                 .conversationId(conversation != null ? conversation.getId() : null)

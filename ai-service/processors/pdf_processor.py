@@ -71,10 +71,8 @@ class PdfProcessor(BaseProcessor):
 
     def extract_text(self, file_path: str) -> str:
         """Thỏa mãn interface BaseProcessor để tích hợp vào FastAPI /ingest"""
-        # Lưu tên file gốc trước khi có thể bị thay bằng temp path
         original_filename = os.path.basename(file_path)
 
-        # Nếu là PDF scan → pre-process bằng OCRmyPDF trước
         processed_path = file_path
         tmp_created = False
         if self._is_scan_pdf(file_path):
@@ -85,32 +83,35 @@ class PdfProcessor(BaseProcessor):
         try:
             data = self.extract_all(processed_path, original_filename=original_filename)
         finally:
-            # Xóa temp file nếu đã tạo
             if tmp_created and os.path.exists(processed_path):
                 os.unlink(processed_path)
 
-        # Chuyển đổi dict thành markdown string cho RAG chunking
-        lines = [f"# TÀI LIỆU: {data['metadata']['source_file']}"]
+        # Build text: KHÔNG thêm header "## TRANG X" vào content để tránh nhiễu embedding
+        # Chỉ dùng tên tài liệu làm context đầu mỗi page block
+        doc_name = data['metadata']['source_file']
+        lines = []
+
         for page in data["pages"]:
-            lines.append(f"\n## TRANG {page['page_number']}")
+            page_lines = []
+
             if page["content"]:
-                lines.append(page["content"])
+                page_lines.append(page["content"])
 
             if page["tables"]:
                 for idx, table in enumerate(page["tables"]):
-                    lines.append(f"### Bảng {idx + 1}:")
-                    if not table: continue
-
+                    if not table:
+                        continue
                     header = table[0]
-                    lines.append("| " + " | ".join(header) + " |")
-                    lines.append("| " + " | ".join(["---"] * len(header)) + " |")
-
+                    page_lines.append("| " + " | ".join(header) + " |")
+                    page_lines.append("| " + " | ".join(["---"] * len(header)) + " |")
                     for row in table[1:]:
                         row_padded = row + [""] * (len(header) - len(row))
-                        lines.append("| " + " | ".join(row_padded) + " |")
-                    lines.append("\n")
+                        page_lines.append("| " + " | ".join(row_padded) + " |")
 
-        return "\n".join(lines)
+            if page_lines:
+                lines.append("\n".join(page_lines))
+
+        return "\n\n".join(lines)
 
     def extract_all(self, file_path: str, original_filename: str = None):
         """Trích xuất text và bảng từ một file PDF.

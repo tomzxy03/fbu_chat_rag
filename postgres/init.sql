@@ -15,9 +15,12 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 );
 
 -- Index cosine distance để tìm kiếm nhanh
+-- HNSW: recall tốt hơn IVFFlat, không cần training, phù hợp máy ít RAM
+-- m=16: số connections mỗi node (trade-off: memory vs recall)
+-- ef_construction=64: độ chính xác khi build index
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding
-    ON document_chunks USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
+    ON document_chunks USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
 
 CREATE INDEX IF NOT EXISTS idx_chunks_year      ON document_chunks (year);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc_type  ON document_chunks (doc_type);
