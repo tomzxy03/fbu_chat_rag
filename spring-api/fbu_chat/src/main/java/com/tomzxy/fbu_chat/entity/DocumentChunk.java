@@ -39,4 +39,7 @@ public class DocumentChunk {
     private String docType;
 
     private Integer year;
+
+    @Column(name = "parent_id")
+    private UUID parentId;
 }

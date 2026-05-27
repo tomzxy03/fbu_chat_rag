@@ -19,3 +19,5 @@ Pillow
 pdf2image
 # ─── OCR pre-processing (scan PDF → searchable PDF) ───
 ocrmypdf
+# ─── Markdown processor (YAML front matter) ───
+pyyaml

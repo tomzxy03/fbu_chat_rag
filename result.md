@@ -1,54 +1,49 @@
-giái pháp của gemini:
-Điểm 1: Chỉ trích IVFFlat Index & Đề xuất HNSW
-Kiro nói rất đúng: IVFFlat phân cụm dữ liệu theo danh sách (lists), tốc độ build nhanh, tốn ít RAM nhưng Recall (độ phủ/độ chính xác tìm kiếm) thấp. Nếu số lượng vector của bạn ít (~6000 chunks), HNSW (Hierarchical Navigable Small World) vượt trội hoàn toàn vì nó xây dựng đồ thị liên kết giữa các vector, cho độ chính xác gần như tuyệt đối mà không hề tốn bao nhiêu RAM trên con CPU máy dev của bạn.
+# top 5 level chunk:
+Giải mã "5 Levels of Text Splitting"
+Level 1: Character Splitting (Cắt mù)
 
-Giải pháp: Khi viết file Migration SQL để tạo Index cho cột embedding, hãy chuyển từ ivfflat sang hnsw với khoảng cách Cosine (vector_cosine_ops):
+Cách làm: Cứ đủ 500 ký tự là chặt cái rụp.
 
-SQL
+Đánh giá: Thảm họa. Cắt đứt đôi một câu, đứt đôi một từ.
 
--- Chạy lệnh này trong Postgres để đổi Index
-DROP INDEX IF EXISTS idx_document_chunks_embedding;
-CREATE INDEX ON document_chunks USING hnsw (embedding vector_cosine_ops);
-🔴 Điểm 2 & 3: topK=5 quá thấp & Thiếu Similarity Threshold
-Vấn đề: Hiện tại trong RagService.java của bạn, SIMILARITY_THRESHOLD đang được khai báo cứng ở đầu file nhưng có vẻ cấu hình chưa đồng nhất hoặc logic bị rỗng. Nếu topK=5 nhưng không có threshold chặn dưới, hệ thống sẽ bốc đủ 5 chunks bừa bãi (kể cả những chunk có điểm tương đồng cực thấp, hoàn toàn lạc đề) ném vào LLM, làm loãng ngữ cảnh.
+Level 2: Recursive Character Text Splitting (Cắt đệ quy - Langchain Default)
 
-Giải pháp: Đẩy topK lên 8 hoặc 10 kết hợp với Hybrid Search, đồng thời nới lỏng Threshold từ 0.5 lên 0.65 (như Claude gợi ý để tránh bị nghẽn mạch).
+Cách làm: Cố gắng cắt theo cụm văn bản lớn trước (đoạn văn \n\n), nếu vẫn to quá thì cắt theo câu (. ), to nữa thì cắt theo từ (khoảng trắng).
 
-🔴 Điểm 4: new RestTemplate() mỗi request gây nghẽn Connection
-Vấn đề chí mạng về Backend: Trong RagService.java, việc bạn khởi tạo new RestTemplate() bên trong method callGroqLlmService hoặc gọi thủ công cho mỗi request sẽ tiêu tốn Socket Connection của OS. Khi có nhiều request đồng thời, hệ thống sẽ bị lỗi Address already in use (Resource Exhaustion) vì không tái sử dụng được Connection Pool.
+Đánh giá: Khá an toàn cho text thông thường, nhưng sẽ làm vỡ tan tành các bảng biểu học phí (Tầng 4) của bạn.
 
-Giải pháp: Cấu hình một RestTemplate dạng Bean dùng chung có tích hợp PoolingHttpClientConnectionManager thông qua thư viện Apache HttpClient trong file @Configuration.
+Level 3: Document Specific Splitting (Cắt theo cấu trúc - Chính là cái chúng ta vừa chốt!)
 
-🔴 Điểm 5: Thiếu Conversation History (Lịch sử trò chuyện) trong Context
-Vấn đề: Nhìn vào mã nguồn RagService.java hiện tại, bạn có lấy List<Message> history từ DB ra nhưng chưa hề append (nối) chuỗi lịch sử này vào danh sách messages gửi sang Groq. Điều này khiến mô hình Llama biến thành một kẻ "mất trí nhớ", sinh viên hỏi câu thứ hai giải thích cho câu thứ nhất là AI chịu chết.
+Cách làm: Tôn trọng định dạng gốc (Markdown, HTML). Dùng thẻ Heading (#, ##) làm ranh giới.
 
+Đánh giá: Đây chính là kỹ thuật Hierarchical Hybrid Chunking mà mình khuyên bạn dùng cho tài liệu trường học/pháp lý. Nó giữ nguyên được cấu trúc Điều khoản, Chương mục.
 
-giải pháp của claude: 
-còn đây là giải pháp của claude: Vấn đề cốt lõi
-Pure vector search + threshold 0.5 quá chặt. Nhìn vào DocumentChunkRepository:
+Level 4: Semantic Chunking (Cắt theo toán học/ngữ nghĩa)
 
+Cách làm: Đây là kỹ thuật cực kỳ "Big Brain". Thay vì tìm dấu chấm, dấu phẩy. Hệ thống sẽ đem từng câu đi làm Embedding (biến thành số). Sau đó tính khoảng cách vector giữa câu 1 và câu 2. Nếu hai câu đang nói về "Cơ sở vật chất", khoảng cách sẽ rất gần. Tự nhiên câu 3 chuyển sang nói về "Học phí", khoảng cách vector sẽ bị dội lên (Spike). Thuật toán sẽ lấy cái "Spike" đó làm ranh giới cắt!
 
-sql
+Đánh giá: Tuyệt đỉnh cho các bài báo, tiểu thuyết, văn xuôi (Prose) vì không có thẻ Heading. Nhưng tốn tiền chạy API embedding 2 lần.
 
-WHERE embedding <=> CAST(:queryVector AS vector) < :threshold  -- chỉ 0.5ORDER BY embedding <=> CAST(:queryVector AS vector)
-Với câu hỏi chứa "Điều 5", "IT101", "238/2025/NĐ-CP" — e5-small embed những từ này thành vector khá khác so với nội dung trong chunk dài 1200 tokens. Cosine distance dễ vượt quá 0.5 → bị filter ra ngoài hoàn toàn.
-Fallback threshold = 2.0 có nhưng lấy hết mọi thứ không liên quan.
-Thêm vào đó: sources trong ChatResponse không deduplicate — đây là nguyên nhân citation lặp ở screenshot.
-Fix theo thứ tự ưu tiên
-Fix 1 — Deduplicate sources (2 dòng, làm ngay):
-Created 2 files
-Created 2 files
+Level 5: Agentic Chunking (Cắt bằng AI)
 
-Giờ viết QueryBuilder để convert câu hỏi tự nhiên → tsquery an toàn:
-TsQueryBuilder.java - convert user query sang PostgreSQL tsquery an toàn
-TsQueryBuilder.java - convert user query sang PostgreSQL tsquery an toàn
+Cách làm: Prompt cho LLM: "Mày đọc đoạn văn này đi, tự hiểu ý nghĩa rồi tự chặt ra thành các mẩu độc lập cho tao".
 
-Giờ viết RagService đã update với hybrid search:
-Created a file, ran a command, read a file
-Created a file, ran a command, read a file
+Đánh giá: Tiêu tốn cực kỳ nhiều Token và thời gian (Latency), chỉ dùng cho các startup nhà giàu.
 
-Tóm tắt chẩn đoán và fix
-Root cause xác định từ code:
-RagService gọi findTopRelatedContexts() với threshold = 0.5. Với chunk 1200 tokens, vector bị "pha loãng" — câu hỏi "Điều 5" có cosine distance > 0.5 so với chunk dài chứa "Điều 5" kèm 1199 tokens khác → bị filter ra ngoài. Fallback threshold = 2.0 thì lấy hết không liên quan.
-4 files cần apply:
-FileLàm gìV3__add_hybrid_search.sqlThêm ts_content tsvector + GIN index vào DBTsQueryBuilder.javaConvert câu hỏi → tsquery an toàn, có prefix matchpatches.javaMethod hybridSearch() cho repository + dedup sourcesRagService-hybrid-patch.mdHướng dẫn apply từng bước
+🎯 Chiến thuật tối ưu nhất cho dự án của bạn hiện tại
+Khi kết hợp repo của Greg Kamradt và paper của Anthropic (sơ đồ bạn gửi trước đó), kiến trúc hoàn hảo và ít tốn kém nhất cho hệ thống RAG văn bản trường học của bạn sẽ là:
+
+Sử dụng Level 3 (Markdown Splitter) + Kẹp thêm Contextual Retrieval của Anthropic.
+
+Nghĩa là:
+
+Dùng quy tắc cắt theo Heading # để gom các đoạn văn có chung cấu trúc logic lại (Tránh mất gốc và vỡ bảng).
+
+Chấp nhận các chunk có thể hơi thiếu một chút ngữ cảnh vĩ mô.
+
+Bù đắp cái thiếu đó bằng cách gọi hàm cho LLM sinh ra một câu Context Hint (như sơ đồ Anthropic) dán vào đầu mỗi chunk.
+
+Bằng cách này, bạn lấy được ưu điểm của Level 3 (rẻ, nhanh, giữ bảng biểu tốt) và đạt được sức mạnh ngữ nghĩa của Level 5 (LLM tự hiểu bối cảnh) mà không bị "đốt tiền" API quá nhiều.
+
+# giải pháp của vấn đề semantic chunk bị mất nội dung:
+Sử dụng Parent-Child Chunking không những ĐƯỢC mà còn là BẮT BUỘC nếu bạn muốn vừa có độ chính xác toán học của Semantic Chunking, vừa giữ được cấu trúc phân cấp # và ## của tài liệu trường học.🧠 Cơ chế hoạt động của Parent-Child ChunkingÝ tưởng cốt lõi của kỹ thuật này là: Tách biệt dữ liệu dùng để TÌM KIẾM (Search) và dữ liệu dùng để TRẢ LỜI/HIỂN THỊ (Generation/UI).Hệ thống của bạn sẽ quản lý 2 loại chunk lồng nhau:Parent Chunk (Chunk Cha): Toàn bộ phân đoạn lớn, trọn vẹn cấu trúc logic nằm dưới thẻ ## Điều 5. Học phí. Nó giữ nguyên tất cả các bảng biểu Markdown, văn bản đi kèm và đặc biệt là các thẻ ảnh (Image tags).Child Chunks (Chunk Con): Cục Parent ở trên sẽ được băm nhỏ ra thành nhiều mẩu tí hon (khoảng 100-200 ký tự) bằng toán học Semantic Chunking hoặc Recursive Splitting.🔑 Mối quan hệ: Mỗi Child Chunk trong Database sẽ giữ một khóa ngoại parent_id trỏ ngược về Parent Chunk của nó.🔄 Luồng chạy thực tế: Giải quyết xung đột # và ## như thế nào?Khi áp dụng mô hình này vào dự án của bạn, luồng Ingest và Query sẽ chạy cực kỳ mượt mà:1. Lúc nạp dữ liệu (Ingestion Pipeline)Bạn dùng cấu trúc dữ liệu của Claude: Cắt file theo ## để tạo ra các Parent Chunks.Với mỗi Parent, bạn lưu vào bảng parent_documents (hoặc lưu file Display .md lên S3).Bạn lấy Text của Parent đó, băm nhỏ tiếp thành các Child Chunks (Level 4 - Semantic).Bạn chỉ làm Embedding cho các Child Chunks này rồi lưu vào pgvector.2. Lúc Người dùng hỏi (Query Pipeline)User hỏi: "Học phí ngành CNTT năm 2026 bao nhiêu?"Hệ thống quét vector trên bảng Child Chunks. Vì chunk con rất nhỏ và tập trung, nó sẽ bắt trúng ngay từ khóa "CNTT" và "Học phí".Bước ngoặt Backend: Khi pgvector trả về Child Chunk có điểm số cao nhất, Code Python/Laravel của bạn không thèm lấy text của Child này ném cho LLM. Thay vào đó, nó nhìn vào parent_id của Child đó để bốc toàn bộ nội dung trọn vẹn của Parent Chunk (hoặc kéo file Display từ S3 về).Backend gửi cục Parent sạch sẽ, đầy đủ cấu trúc #, ## cho LLM đọc để sinh câu trả lời.🤝 Nó khớp nối hoàn hảo với 4 sơ đồ bạn đã có như thế nào?Nếu bạn nhìn kỹ lại sơ đồ hybrid_chunking_strategy.svg mà bạn đã tải lên, thực chất Claude đang vẽ cho bạn chính là một kiến trúc Parent-Child lai (Hybrid):Bước 2 trong sơ đồ: Split theo ## heading để tạo ra các Sections $\rightarrow$ Đây chính là bước xác định Parent Chunk.Bước 3 trong sơ đồ: Nếu dài quá 800 ký tự thì cắt nhỏ tiếp bằng \n + overlap $\rightarrow$ Đây chính là bước tạo ra các Child Chunks.

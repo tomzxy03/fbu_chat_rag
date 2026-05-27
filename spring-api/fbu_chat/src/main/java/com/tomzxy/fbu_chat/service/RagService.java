@@ -9,9 +9,11 @@ import com.tomzxy.fbu_chat.dto.EmbeddingRequest;
 import com.tomzxy.fbu_chat.dto.EmbeddingResponse;
 import com.tomzxy.fbu_chat.entity.Conversation;
 import com.tomzxy.fbu_chat.entity.Message;
+import com.tomzxy.fbu_chat.entity.ParentChunk;
 import com.tomzxy.fbu_chat.repository.ConversationRepository;
 import com.tomzxy.fbu_chat.repository.DocumentChunkRepository;
 import com.tomzxy.fbu_chat.repository.MessageRepository;
+import com.tomzxy.fbu_chat.repository.ParentChunkRepository;
 import com.tomzxy.fbu_chat.util.TsQueryBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,10 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -51,6 +50,7 @@ public class RagService {
     private final ConversationRepository conversationRepo;
     private final MessageRepository messageRepo;
     private final DocumentChunkRepository docRepo;
+    private final ParentChunkRepository parentChunkRepo;
     private final ObjectMapper objectMapper;
     // Reuse RestTemplate cho Groq — tránh tạo mới mỗi request
     private final RestTemplate groqRestTemplate = new RestTemplate();
@@ -64,12 +64,14 @@ public class RagService {
             ConversationRepository conversationRepo,
             MessageRepository messageRepo,
             DocumentChunkRepository docRepo,
+            ParentChunkRepository parentChunkRepo,
             ObjectMapper objectMapper) {
         this.aiRestTemplate = aiRestTemplate;
         this.aiBaseUrl = aiBaseUrl;
         this.conversationRepo = conversationRepo;
         this.messageRepo = messageRepo;
         this.docRepo = docRepo;
+        this.parentChunkRepo = parentChunkRepo;
         this.objectMapper = objectMapper;
     }
 
@@ -157,10 +159,8 @@ public class RagService {
         if (topContexts.isEmpty()) {
             contextText = "Không tìm thấy tài liệu liên quan.";
         } else {
-            contextText = topContexts.stream()
-                    .map(c -> String.format("[Nguồn: %s | Năm: %d]\n%s", c.getSourceFile(), c.getYear(),
-                            c.getContent()))
-                    .collect(Collectors.joining("\n\n---\n\n"));
+            // Fetch parent content cho các child có parentId
+            contextText = buildContextWithParents(topContexts);
         }
 
         // 5. Gọi Groq LLM API
@@ -269,7 +269,7 @@ public class RagService {
                                 .year(s.get("year") instanceof Integer ? (Integer) s.get("year") : null)
                                 .docType((String) s.get("doc_type"))
                                 .build(),
-                        (existing, duplicate) -> existing  // giữ entry đầu tiên nếu trùng
+                        (existing, duplicate) -> existing // giữ entry đầu tiên nếu trùng
                 ))
                 .values()
                 .stream()
@@ -314,6 +314,57 @@ public class RagService {
                 .title(title)
                 .build();
         return conversationRepo.save(conv);
+    }
+
+    /**
+     * Build LLM context: dùng parent content (full section) thay vì child chunk
+     * nhỏ.
+     * Deduplicate: nếu nhiều child cùng parentId → chỉ include parent 1 lần.
+     * Fallback: child không có parent (legacy PDF data) → dùng child content.
+     */
+    private String buildContextWithParents(List<ChunkResult> contexts) {
+        // Collect parentIds cần fetch
+        List<UUID> parentIds = contexts.stream()
+                .map(ChunkResult::getParentId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        // Batch fetch parents
+        Map<UUID, ParentChunk> parentMap = new HashMap<>();
+        if (!parentIds.isEmpty()) {
+            List<ParentChunk> parents = parentChunkRepo.findAllById(parentIds);
+            for (ParentChunk p : parents) {
+                parentMap.put(p.getId(), p);
+            }
+        }
+
+        // Build context — deduplicate by parentId
+        Set<UUID> usedParentIds = new HashSet<>();
+        List<String> contextParts = new ArrayList<>();
+
+        for (ChunkResult c : contexts) {
+            UUID pid = c.getParentId();
+
+            if (pid != null && parentMap.containsKey(pid)) {
+                // Có parent → dùng parent content, deduplicate
+                if (usedParentIds.add(pid)) {
+                    ParentChunk parent = parentMap.get(pid);
+                    contextParts.add(String.format("[Nguồn: %s | Năm: %d]\n%s",
+                            c.getSourceFile(),
+                            c.getYear() != null ? c.getYear() : 2026,
+                            parent.getContent()));
+                }
+            } else {
+                // Legacy chunk (no parent) → dùng child content
+                contextParts.add(String.format("[Nguồn: %s | Năm: %d]\n%s",
+                        c.getSourceFile(),
+                        c.getYear() != null ? c.getYear() : 2026,
+                        c.getContent()));
+            }
+        }
+
+        return String.join("\n\n---\n\n", contextParts);
     }
 
 }

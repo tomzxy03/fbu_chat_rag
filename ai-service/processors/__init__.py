@@ -12,6 +12,7 @@ from .docx_processor import DocxProcessor
 from .image_processor import ImageProcessor
 from .text_processor import TextProcessor
 from .json_processor import JsonProcessor
+from .markdown_processor import MarkdownProcessor
 
 # Đăng ký tất cả processors — thứ tự không quan trọng
 REGISTRY: list[type[BaseProcessor]] = [
@@ -20,6 +21,7 @@ REGISTRY: list[type[BaseProcessor]] = [
     ImageProcessor,
     TextProcessor,
     JsonProcessor,
+    MarkdownProcessor,
 ]
 
 # Tập hợp tất cả extensions được hỗ trợ

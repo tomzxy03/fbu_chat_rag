@@ -99,11 +99,14 @@ def main():
             continue
 
         # Gửi request — timeout cao vì PDF lớn + OCR có thể mất nhiều phút trên máy yếu
+        # Detect MIME type dựa trên extension
+        mime_map = {".md": "text/markdown", ".json": "application/json"}
+        mime_type = mime_map.get(pdf_path.suffix.lower(), "application/pdf")
         try:
             response = requests.post(
                 ingest_url,
                 headers=headers,
-                files={"file": (filename, file_bytes, "application/pdf")},
+                files={"file": (filename, file_bytes, mime_type)},
                 timeout=600,  # 10 phút — đủ cho OCR file scan nhiều trang
             )
         except requests.exceptions.ConnectionError as e:

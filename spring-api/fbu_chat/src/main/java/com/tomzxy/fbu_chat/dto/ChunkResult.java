@@ -7,7 +7,12 @@ package com.tomzxy.fbu_chat.dto;
  */
 public interface ChunkResult {
     String getContent();
+
     String getSourceFile();
+
     Integer getYear();
+
     String getDocType();
+
+    java.util.UUID getParentId();
 }

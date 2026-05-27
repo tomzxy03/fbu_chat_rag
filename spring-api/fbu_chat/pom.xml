@@ -79,6 +79,7 @@
 		<dependency>
 			<groupId>org.hibernate.orm</groupId>
 			<artifactId>hibernate-vector</artifactId>
+			<version>6.6.1.Final</version>
 		</dependency>
 
 		<!-- Spring Security -->

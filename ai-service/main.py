@@ -72,10 +72,14 @@ async def chunk_file(file: UploadFile = File(...)):
     if not chunks:
         raise HTTPException(status_code=422, detail="Không trích xuất được nội dung từ file")
 
-    return [
-        {"content": text, "pageNumber": 1, "chunkIndex": idx}
-        for idx, text in enumerate(chunks)
-    ]
+    # MarkdownProcessor trả về list[dict], các processor khác trả về list[str]
+    if chunks and isinstance(chunks[0], dict):
+        return chunks
+    else:
+        return [
+            {"content": text, "pageNumber": 1, "chunkIndex": idx}
+            for idx, text in enumerate(chunks)
+        ]
 
 
 @app.post("/v1/embeddings")

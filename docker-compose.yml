@@ -10,6 +10,8 @@ services:
       - ./ai-service:/app
       # Cache model để không tải lại mỗi lần restart
       - ai_model_cache:/root/.cache/huggingface
+      # Mount _clean.md files cho reingest
+      - ./postgres/pdf_output/md_rag:/app/md_rag:ro
     environment:
       - DB_HOST=host.docker.internal # → PostgreSQL trên host
       - DB_NAME=${POSTGRES_DB}
