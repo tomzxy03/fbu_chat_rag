@@ -20,7 +20,7 @@ public class TsQueryBuilder {
             "là", "và", "của", "có", "được", "trong", "cho", "với", "về",
             "các", "những", "một", "này", "đó", "khi", "nếu", "thì", "mà",
             "để", "từ", "theo", "tại", "bởi", "vì", "như", "hay", "hoặc",
-            "không", "chưa", "đã", "sẽ", "đang", "bị", "được", "hãy",
+            "không", "chưa", "đã", "sẽ", "đang", "bị", "hãy",
             "tôi", "bạn", "anh", "chị", "em", "họ", "chúng", "ta",
             "gì", "nào", "đâu", "sao", "thế", "vậy", "ạ", "nhé"
     );

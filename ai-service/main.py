@@ -71,15 +71,39 @@ async def chunk_file(file: UploadFile = File(...)):
 
     if not chunks:
         raise HTTPException(status_code=422, detail="Không trích xuất được nội dung từ file")
+    
+    logger.info(f"🔍 SAMPLE CHUNK TỪ PROCESSOR: {chunks[0]}")
 
     # MarkdownProcessor trả về list[dict], các processor khác trả về list[str]
     if chunks and isinstance(chunks[0], dict):
         return chunks
+    # else:
+    #     return [
+    #         {"content": text, "pageNumber": 1, "chunkIndex": idx}
+    #         for idx, text in enumerate(chunks)
+    #     ]
     else:
-        return [
-            {"content": text, "pageNumber": 1, "chunkIndex": idx}
-            for idx, text in enumerate(chunks)
-        ]
+        results = []
+        for idx, text in enumerate(chunks):
+            # Tự động dò tìm Heading từ nội dung file
+            parent_heading = "Nội dung chính"
+            for line in text.split("\n"):
+                # Ưu tiên lấy dòng tiêu đề Markdown có dấu #
+                if line.strip().startswith("#"):
+                    parent_heading = line.replace("#", "").strip()
+                    break
+                # Nếu không có #, thử lấy từ thuộc tính title: "..." ở đầu file
+                elif line.strip().startswith("title:"):
+                    parent_heading = line.replace("title:", "").replace('"', '').strip()
+            
+            results.append({
+                "content": text,
+                "pageNumber": 1,
+                "chunkIndex": idx,
+                "parent_heading": parent_heading,
+                "parent_content": text  # Gán toàn bộ text của chunk làm ngữ cảnh lớn (Parent Content)
+            })
+        return results
 
 
 @app.post("/v1/embeddings")
