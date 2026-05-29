@@ -89,14 +89,8 @@ public class RagService {
             } else {
                 conversation = createConversation(request.getQuery(), userId);
             }
-
-            // 2. Lưu message của user
-            Message userMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("user")
-                    .content(request.getQuery())
-                    .build();
-            messageRepo.save(userMsg);
+            // Lưu user message sẽ được thực hiện SAU khi fetch history (tránh duplicate
+            // trong prompt)
         }
 
         // 3. Tìm vector cho query từ AI Service
@@ -214,7 +208,11 @@ public class RagService {
                 "- Chỉ trả lời dựa trên CONTEXT được cung cấp.\n" +
                 "- Nếu không có thông tin liên quan trong context, hãy nói rõ là không tìm thấy thông tin.\n" +
                 "- Trả lời bằng tiếng Việt, chính xác và đầy đủ.\n" +
-                "- Trích dẫn nguồn tài liệu khi trả lời.";
+                "- Trích dẫn nguồn tài liệu khi trả lời.\n" +
+                "- QUAN TRỌNG: Nếu có lịch sử hội thoại, hãy đọc kỹ các câu trả lời trước đó. " +
+                "KHÔNG lặp lại thông tin đã cung cấp. Chỉ bổ sung thông tin MỚI chưa được đề cập.\n" +
+                "- Nếu câu hỏi là follow-up (ví dụ 'còn gì khác không?') và tất cả thông tin liên quan " +
+                "đã được trả lời trước đó, hãy nói rõ rằng đã cung cấp đầy đủ.";
 
         String userPrompt = "CONTEXT từ tài liệu:\n" + contextText + "\n\nCÂU HỎI: " + request.getQuery()
                 + "\n\nTrả lời:";
@@ -236,6 +234,8 @@ public class RagService {
         List<Map<String, Object>> groqMessages = new java.util.ArrayList<>();
         groqMessages.add(groqMsg1);
         if (conversation != null) {
+            // Fetch history TRƯỚC khi lưu user message hiện tại → tránh duplicate trong
+            // prompt
             List<Message> recentHistory = messageRepo
                     .findByConversationIdOrderByCreatedAtAsc(conversation.getId());
             // Lấy HISTORY_WINDOW * 2 messages gần nhất (user + assistant pairs)
@@ -246,6 +246,14 @@ public class RagService {
                 hm.put("content", histMsg.getContent());
                 groqMessages.add(hm);
             }
+
+            // Lưu user message SAU khi đã fetch history xong
+            Message userMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("user")
+                    .content(request.getQuery())
+                    .build();
+            messageRepo.save(userMsg);
         }
 
         Map<String, Object> groqMsg2 = new HashMap<>();
