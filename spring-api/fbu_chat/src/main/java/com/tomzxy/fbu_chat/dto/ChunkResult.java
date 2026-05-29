@@ -15,4 +15,6 @@ public interface ChunkResult {
     String getDocType();
 
     java.util.UUID getParentId();
+
+    String getSection();
 }

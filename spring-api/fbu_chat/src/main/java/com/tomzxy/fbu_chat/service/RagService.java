@@ -119,41 +119,70 @@ public class RagService {
         List<Float> queryVector = embResponse.getBody().getEmbeddings().get(0);
         String vectorStr = "[" + queryVector.stream().map(String::valueOf).collect(Collectors.joining(",")) + "]";
 
-        // 4. Tìm kiếm ngữ cảnh trong DB — Hybrid search (vector + full-text RRF)
         int topK = request.getTopK() != null ? request.getTopK() : DEFAULT_TOP_K;
-        String tsQuery = TsQueryBuilder.build(request.getQuery());
-        log.info("Searching (topK={}, threshold={}, tsQuery={}, year={}, docType={})...",
-                topK, SIMILARITY_THRESHOLD, tsQuery, request.getYear(), request.getDocType());
+        int candidateK = topK * 3;
 
-        List<ChunkResult> topContexts;
+        // Build cả AND và OR query từ TsQueryBuilder v2
+        String[] tsQueries = TsQueryBuilder.buildSmart(request.getQuery());
+        String andQuery = tsQueries[0];
+        String orQuery = tsQueries[1];
 
-        if (tsQuery != null) {
-            // Hybrid: vector + full-text RRF — tốt nhất cho câu hỏi có từ khóa cụ thể
+        log.info("Searching (topK={}, threshold={}, AND={}, year={}, docType={})",
+                topK, SIMILARITY_THRESHOLD, andQuery,
+                request.getYear(), request.getDocType());
+
+        List<ChunkResult> topContexts = List.of();
+
+        // Pass 1: Hybrid AND (chặt chẽ, chính xác tuyệt đối)
+        if (andQuery != null) {
             try {
-                topContexts = docRepo.hybridSearch(vectorStr, tsQuery, topK, SIMILARITY_THRESHOLD);
+                List<ChunkResult> andResults = docRepo.hybridSearch(vectorStr, andQuery, topK, candidateK);
+                topContexts = filterByMetadata(andResults, request); // Áp bộ lọc ngay lập tức
+                log.info("Pass 1 (AND) after metadata filter: {} results", topContexts.size());
             } catch (Exception e) {
-                // Fallback về pure vector nếu tsquery syntax error
-                log.warn("Hybrid search failed ({}), falling back to vector only", e.getMessage());
-                topContexts = docRepo.findTopRelatedContexts(vectorStr, topK, SIMILARITY_THRESHOLD);
+                log.warn("Hybrid AND failed: {}", e.getMessage());
             }
-        } else {
-            // Pure vector nếu query chỉ có stop words
-            topContexts = docRepo.findTopRelatedContexts(vectorStr, topK, SIMILARITY_THRESHOLD);
         }
 
-        // Áp filter year/docType nếu có (post-filter sau hybrid search)
-        if (!topContexts.isEmpty() && (request.getYear() != null || request.getDocType() != null)) {
-            topContexts = topContexts.stream()
-                    .filter(c -> request.getYear() == null || request.getYear().equals(c.getYear()))
-                    .filter(c -> request.getDocType() == null || request.getDocType().equals(c.getDocType()))
-                    .collect(Collectors.toList());
+        // Pass 2: Hybrid OR Fallback (Kích hoạt nếu Pass 1 quá ít kết quả hợp lệ)
+        if (topContexts.size() < 2 && orQuery != null) {
+            log.info("Pass 1 insufficient, trying OR fallback...");
+            try {
+                List<ChunkResult> orResults = docRepo.hybridSearch(vectorStr, orQuery, topK, candidateK);
+                List<ChunkResult> filteredOr = filterByMetadata(orResults, request);
+                log.info("Pass 2 (OR) after metadata filter: {} results", filteredOr.size());
+
+                if (filteredOr.size() > topContexts.size()) {
+                    topContexts = filteredOr;
+                }
+            } catch (Exception e) {
+                log.warn("Hybrid OR failed: {}", e.getMessage());
+            }
         }
 
-        // Fallback: nếu không có kết quả, thử lại với threshold rộng hơn
+        // Pass 3: Pure Vector Fallback (Dựa vào AI tìm ngữ nghĩa nếu FTS không khớp từ
+        // khóa)
+        if (topContexts.size() < 2) {
+            log.info("Hybrid insufficient, falling back to pure vector...");
+            List<ChunkResult> vectorResults = docRepo.findTopRelatedContexts(vectorStr, topK, SIMILARITY_THRESHOLD);
+            List<ChunkResult> filteredVector = filterByMetadata(vectorResults, request);
+            log.info("Pass 3 (vector) after metadata filter: {} results", filteredVector.size());
+
+            if (filteredVector.size() > topContexts.size()) {
+                topContexts = filteredVector;
+            }
+        }
+
+        // Pass 4: Vét cạn cuối cùng (Hạ threshold điểm số xuống tối đa nếu vẫn trống
+        // rỗng)
         if (topContexts.isEmpty()) {
-            log.info("No results, retrying with relaxed threshold...");
-            topContexts = docRepo.findTopRelatedContexts(vectorStr, topK, 2.0);
+            log.info("No results at threshold {}, relaxing to 1.0...", SIMILARITY_THRESHOLD);
+            List<ChunkResult> relaxedResults = docRepo.findTopRelatedContexts(vectorStr, topK, 1.0);
+            topContexts = filterByMetadata(relaxedResults, request);
+            log.info("Pass 4 (relaxed vector) after metadata filter: {} results", topContexts.size());
         }
+
+        log.info("Final chunks for LLM: {}", topContexts.size());
 
         String contextText;
         if (topContexts.isEmpty()) {
@@ -162,6 +191,20 @@ public class RagService {
             // Fetch parent content cho các child có parentId
             contextText = buildContextWithParents(topContexts);
         }
+
+        log.info("=== CHUNKS SENT TO LLM ({}) ===", topContexts.size());
+        for (int i = 0; i < topContexts.size(); i++) {
+            ChunkResult c = topContexts.get(i);
+            log.info("[{}] {} | len={} | preview={}",
+                    i + 1,
+                    c.getSourceFile(),
+                    c.getContent() != null ? c.getContent().length() : 0,
+                    c.getContent() != null
+                            ? c.getContent().substring(0, Math.min(80, c.getContent().length()))
+                                    .replace("\n", " ")
+                            : "NULL");
+        }
+        log.info("================================");
 
         // 5. Gọi Groq LLM API
         String systemPrompt = "Bạn là trợ lý AI của trường FBU\n" +
@@ -316,21 +359,42 @@ public class RagService {
         return conversationRepo.save(conv);
     }
 
-    /**
-     * Build LLM context: dùng parent content (full section) thay vì child chunk
-     * nhỏ.
-     * Deduplicate: nếu nhiều child cùng parentId → chỉ include parent 1 lần.
-     * Fallback: child không có parent (legacy PDF data) → dùng child content.
-     */
+    private List<ChunkResult> filterByMetadata(List<ChunkResult> results, ChatRequest request) {
+        if (results == null || results.isEmpty())
+            return List.of();
+
+        // Không có filter từ phía client -> giữ nguyên danh sách gốc
+        if (request.getYear() == null && request.getDocType() == null)
+            return results;
+
+        List<ChunkResult> filtered = results.stream()
+                .filter(c -> request.getYear() == null
+                        || c.getYear() == null // Hàng rào bảo hiểm: chunk thiếu metadata -> KHÔNG loại
+                        || request.getYear().equals(c.getYear()))
+                .filter(c -> request.getDocType() == null
+                        || c.getDocType() == null // Hàng rào bảo hiểm: chunk thiếu loại văn bản -> KHÔNG loại
+                        || request.getDocType().equalsIgnoreCase(c.getDocType()))
+                .collect(Collectors.toList());
+
+        // Hệ thống cảnh báo giám sát (Data Observability): Nếu bộ lọc làm rơi rụng quá
+        // nửa số chunks
+        if (!results.isEmpty() && filtered.size() < results.size() / 2) {
+            log.warn("🚨 Metadata filter dropped {}/{} chunks — Check your DB metadata injection quality!",
+                    results.size() - filtered.size(), results.size());
+        }
+
+        return filtered;
+    }
+
     private String buildContextWithParents(List<ChunkResult> contexts) {
-        // Collect parentIds cần fetch
+        // 1. Thu thập danh sách parentIds duy nhất
         List<UUID> parentIds = contexts.stream()
                 .map(ChunkResult::getParentId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
 
-        // Batch fetch parents
+        // 2. Batch fetch toàn bộ Parents để tối ưu performance (Tránh N+1 query)
         Map<UUID, ParentChunk> parentMap = new HashMap<>();
         if (!parentIds.isEmpty()) {
             List<ParentChunk> parents = parentChunkRepo.findAllById(parentIds);
@@ -339,32 +403,48 @@ public class RagService {
             }
         }
 
-        // Build context — deduplicate by parentId
         Set<UUID> usedParentIds = new HashSet<>();
+        Set<String> usedFallbackKeys = new HashSet<>(); // Bộ lọc trùng cho các child chunk legacy/fallback
         List<String> contextParts = new ArrayList<>();
 
+        // 3. Duyệt và dựng cấu trúc Context
         for (ChunkResult c : contexts) {
             UUID pid = c.getParentId();
+            String yearLabel = c.getYear() != null ? String.valueOf(c.getYear()) : "Không rõ năm";
+
+            // Cải tiến 2: Dựng nhãn Section (Mục) nếu dữ liệu ingestion có cào được
+            String sectionLabel = (c.getSection() != null && !c.getSection().isBlank())
+                    ? " | Mục: " + c.getSection()
+                    : "";
 
             if (pid != null && parentMap.containsKey(pid)) {
-                // Có parent → dùng parent content, deduplicate
+                // Nhánh 1: Có parent hợp lệ -> Tiến hành Dedup theo parentId
                 if (usedParentIds.add(pid)) {
                     ParentChunk parent = parentMap.get(pid);
-                    contextParts.add(String.format("[Nguồn: %s | Năm: %d]\n%s",
-                            c.getSourceFile(),
-                            c.getYear() != null ? c.getYear() : 2026,
-                            parent.getContent()));
+                    contextParts.add(String.format("[Nguồn: %s | Năm: %s%s]\n%s",
+                            c.getSourceFile(), yearLabel, sectionLabel, parent.getContent()));
                 }
             } else {
-                // Legacy chunk (no parent) → dùng child content
-                contextParts.add(String.format("[Nguồn: %s | Năm: %d]\n%s",
-                        c.getSourceFile(),
-                        c.getYear() != null ? c.getYear() : 2026,
-                        c.getContent()));
+                // Nhánh 2 (Sửa lỗi 1): Fallback khi pid null HOẶC parentId bị lệch pha (DB
+                // inconsistent)
+                if (pid != null) {
+                    log.warn(
+                            "🚨 Khẩn cấp: Tìm thấy parentId {} cho chunk của file {} nhưng không tồn tại trong bảng parent_chunks! Tự động hạ cấp sang Child Content.",
+                            pid, c.getSourceFile());
+                }
+
+                // Cải tiến 3: Khử trùng lặp dữ liệu fallback bằng mã băm nội dung hoặc index
+                // (nếu có)
+                String fallbackKey = c.getSourceFile() + ":"
+                        + (c.getContent() != null ? c.getContent().hashCode() : "");
+
+                if (usedFallbackKeys.add(fallbackKey)) {
+                    contextParts.add(String.format("[Nguồn: %s | Năm: %s%s (Mẩu tin nhỏ)]\n%s",
+                            c.getSourceFile(), yearLabel, sectionLabel, c.getContent()));
+                }
             }
         }
 
         return String.join("\n\n---\n\n", contextParts);
     }
-
 }

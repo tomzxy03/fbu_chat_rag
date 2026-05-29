@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     chunk_index INTEGER,
     doc_type    VARCHAR(100) DEFAULT 'general',  -- 'quy_che', 'thong_bao', 'lich', 'general'...
     year        INTEGER DEFAULT 2026,
+    section     VARCHAR(500),
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 

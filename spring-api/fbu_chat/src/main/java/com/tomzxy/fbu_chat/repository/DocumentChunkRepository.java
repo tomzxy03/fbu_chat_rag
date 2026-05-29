@@ -26,7 +26,7 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
          * distance = 0 là giống hoàn toàn, distance = 2 là ngược hoàn toàn.
          */
         @Query(value = """
-                        SELECT content, source_file AS sourceFile, year, doc_type AS docType, parent_id AS parentId
+                        SELECT content, source_file AS sourceFile, year, doc_type AS docType, parent_id AS parentId, section
                         FROM document_chunks
                         WHERE embedding <=> CAST(:queryVector AS vector) < :threshold
                         ORDER BY embedding <=> CAST(:queryVector AS vector)
