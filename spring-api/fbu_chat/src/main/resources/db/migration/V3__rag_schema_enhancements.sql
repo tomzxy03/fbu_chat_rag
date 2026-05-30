@@ -1,14 +1,19 @@
+-- V3: RAG Schema Framework (Bao gồm bảng mảng, index, unaccent, chunk phân cấp)
+-- Đảm bảo chạy theo đúng thứ tự khởi tạo!
+
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
+-- Wrapper tạo hàm GIN Index không dấu
 CREATE OR REPLACE FUNCTION immutable_unaccent(text) RETURNS text AS $$
   SELECT public.unaccent($1);
 $$ LANGUAGE sql IMMUTABLE STRICT;
 
+-- 1. Bảng lưu trữ nội dung cốt lõi của RAG
 CREATE TABLE IF NOT EXISTS document_chunks (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     content     TEXT NOT NULL,
-    embedding   VECTOR(384),          -- Định dạng kích thước e5-small-v2
+    embedding   VECTOR(384),
     source_file VARCHAR(255),
     chunk_index INTEGER,
     doc_type    VARCHAR(100) DEFAULT 'general',
@@ -17,6 +22,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 2. Bảng Parent chunks 
 CREATE TABLE IF NOT EXISTS parent_chunks (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_file VARCHAR(255) NOT NULL,
@@ -27,9 +33,9 @@ CREATE TABLE IF NOT EXISTS parent_chunks (
     title       VARCHAR(500),
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
-
 CREATE INDEX IF NOT EXISTS idx_parent_chunks_source ON parent_chunks(source_file);
 
+-- 3. Tạo ràng buộc và Các Index tìm kiếm
 ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES parent_chunks(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON document_chunks(parent_id);
 
