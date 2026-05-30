@@ -7,5 +7,5 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 INSERT INTO users (username, password, role) VALUES
-    ('admin', '$2a$10$U.aQ1Q28tY.w5g1aV7h5OubrTpH.9lBOnfXh5aX.2R3EwD/N21pDq', 'ADMIN')
+    ('admin', '$2a$10$28suiwJaI9ysFCVMTIu5f.f4WP/p6ayjWBV0XoUYWdwwgnrf89frO', 'ADMIN')
 ON CONFLICT (username) DO NOTHING;

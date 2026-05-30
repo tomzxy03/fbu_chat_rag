@@ -47,6 +47,8 @@ services:
       fbuai:
         condition: service_healthy
     environment:
+      - SPRING_FLYWAY_REPAIR_ON_MIGRATE=true
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=true
       # Spring kết nối thẳng vào host postgres
       - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:${POSTGRES_PORT:-5432}/${POSTGRES_DB}?sslmode=disable
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}

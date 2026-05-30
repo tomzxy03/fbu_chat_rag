@@ -201,21 +201,23 @@ public class RagService {
         log.info("================================");
 
         // 5. Gọi Groq LLM API
-        String systemPrompt = "Bạn là trợ lý AI của trường FBU\n" +
-                "Nhiệm vụ của bạn là trả lời câu hỏi của sinh viên và giảng viên dựa trên tài liệu nội bộ được cung cấp.\n"
-                +
-                "Quy tắc:\n" +
-                "- Chỉ trả lời dựa trên CONTEXT được cung cấp.\n" +
-                "- Nếu không có thông tin liên quan trong context, hãy nói rõ là không tìm thấy thông tin.\n" +
-                "- Trả lời bằng tiếng Việt, chính xác và đầy đủ.\n" +
-                "- Trích dẫn nguồn tài liệu khi trả lời.\n" +
-                "- QUAN TRỌNG: Nếu có lịch sử hội thoại, hãy đọc kỹ các câu trả lời trước đó. " +
-                "KHÔNG lặp lại thông tin đã cung cấp. Chỉ bổ sung thông tin MỚI chưa được đề cập.\n" +
-                "- Nếu câu hỏi là follow-up (ví dụ 'còn gì khác không?') và tất cả thông tin liên quan " +
-                "đã được trả lời trước đó, hãy nói rõ rằng đã cung cấp đầy đủ.";
+        String systemPrompt = "Bạn là trợ lý AI chuyên nghiệp của trường Đại học Tài chính - Ngân hàng Hà Nội (FBU).\n" +
+            "Nhiệm vụ của bạn là trả lời câu hỏi của sinh viên và giảng viên dựa vào CONTEXT (Ngữ cảnh) được cung cấp.\n\n" +
+            "QUY TẮC CHÍ MẠNG:\n" +
+            "1. CHỈ trả lời dựa trên CONTEXT được cung cấp. Tuyệt đối không tự suy diễn hoặc dùng kiến thức bên ngoài.\n" +
+            "2. Nếu thông tin không có trong CONTEXT, hãy trả lời lịch sự: 'Hệ thống không tìm thấy thông tin này trong tài liệu nội bộ của FBU.'\n" +
+            "3. Trả lời bằng tiếng Việt, ngắn gọn, đi thẳng vào vấn đề, phân tách các ý bằng dấu gạch đầu dòng rõ ràng.\n" +
+            "4. QUẢN LÝ LỊCH SỬ HỘI THOẠI: Đọc kỹ các câu trả lời trước đó trong lịch sử. KHÔNG lặp lại thông tin đã cung cấp. Chỉ bổ sung thông tin MỚI chưa được đề cập.\n" +
+            "5. Nếu câu hỏi là dạng tiếp diễn (ví dụ: 'còn gì nữa không?', 'còn gì khác không?') mà tất cả thông tin trong CONTEXT đã được bạn liệt kê ở các câu trả lời trước, hãy nói rõ: 'Tôi đã cung cấp toàn bộ thông tin tìm thấy trong tài liệu nội bộ liên quan đến vấn đề này.'\n\n" +
+        
+            "QUY TẮC ĐỊNH DẠNG NGUỒN TRÍCH DẪN:\n" +
+            "- Tuyệt đối KHÔNG tự viết chữ 'Nguồn:' hoặc liệt kê danh sách file ở cuối câu trả lời (vì hệ thống đã có bộ lọc tự động hiển thị nguồn riêng).\n" +
+            "- Thay vào đó, hãy trích dẫn trực tiếp tên file ngay trong câu văn nếu cần thiết (Ví dụ: 'Theo Quyết định số 115, quy trình kỷ luật...');";
 
-        String userPrompt = "CONTEXT từ tài liệu:\n" + contextText + "\n\nCÂU HỎI: " + request.getQuery()
-                + "\n\nTrả lời:";
+        String userPrompt = "HỘI THOẠI TRƯỚC ĐÓ (Nếu có):\n" + (request.getHistory() != null ? request.getHistory() : "Trống") + "\n\n" +
+            "CONTEXT TỪ TÀI LIỆU FBU:\n" + contextText + "\n\n" +
+            "CÂU HỎI HIỆN TẠI: " + request.getQuery() + "\n\n" +
+            "Trả lời (Tuân thủ tuyệt đối quy tắc định dạng nguồn):";
 
         log.info("Calling Groq LLM Generator...");
         if (groqApiKey == null || groqApiKey.isEmpty()) {
@@ -437,7 +439,7 @@ public class RagService {
                 // inconsistent)
                 if (pid != null) {
                     log.warn(
-                            "🚨 Khẩn cấp: Tìm thấy parentId {} cho chunk của file {} nhưng không tồn tại trong bảng parent_chunks! Tự động hạ cấp sang Child Content.",
+                            "Khẩn cấp: Tìm thấy parentId {} cho chunk của file {} nhưng không tồn tại trong bảng parent_chunks! Tự động hạ cấp sang Child Content.",
                             pid, c.getSourceFile());
                 }
 

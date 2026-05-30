@@ -49,7 +49,7 @@ public class TsQueryBuilder {
             "bạn", "tôi", "mình", "thể", "còn", "bị", "lại", "hơn", "liệu",
             "đây", "kia", "đấy", "nữa", "lắm", "mấy", "chỉ", "vẫn", "tất",
             "riêng", "chung", "dạ", "vâng", "em", "anh", "chị",
-            "xin", "ơi", "nhờ", "được", "nha", "hen", "đi");
+            "xin", "ơi", "nhờ", "nha", "hen", "đi");
 
     // ── Từ đơn có giá trị cao (fix Bug 2 — chỉ từ đơn, KHÔNG cụm ghép) ─────
     private static final Set<String> HIGH_VALUE_TERMS = Set.of(
