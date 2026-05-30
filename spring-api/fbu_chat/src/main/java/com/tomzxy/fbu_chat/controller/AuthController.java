@@ -14,6 +14,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.GrantedAuthority;
 
 import java.util.Map;
 
@@ -28,19 +30,25 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        Authentication auth = authManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
+public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+    Authentication auth = authManager.authenticate(
+            new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
 
-        User user = (User) auth.getPrincipal();
-        String token = jwtUtil.generateToken(user);
+    UserDetails userDetails = (UserDetails) auth.getPrincipal();
 
-        return ResponseEntity.ok(LoginResponse.builder()
-                .token(token)
-                .username(user.getUsername())
-                .role(user.getRole())
-                .build());
-    }
+    String token = jwtUtil.generateToken(userDetails);
+
+    String role = userDetails.getAuthorities().stream()
+            .map(GrantedAuthority::getAuthority)
+            .findFirst()
+            .orElse("ROLE_USER")
+            .replace("ROLE_", "");
+    return ResponseEntity.ok(LoginResponse.builder()
+            .token(token)
+            .username(userDetails.getUsername())
+            .role(role)
+            .build());
+}
 
     @PostMapping("/register")
     public ResponseEntity<Map<String, String>> register(@Valid @RequestBody RegisterRequest request) {
