@@ -8,7 +8,7 @@ $$ LANGUAGE sql IMMUTABLE STRICT;
 CREATE TABLE IF NOT EXISTS document_chunks (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     content     TEXT NOT NULL,
-    embedding   VECTOR(384),          -- Định dạng e5-small-v2
+    embedding   VECTOR(384),          -- Định dạng kích thước e5-small-v2
     source_file VARCHAR(255),
     chunk_index INTEGER,
     doc_type    VARCHAR(100) DEFAULT 'general',
@@ -36,6 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON document_chunks(parent_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding
     ON document_chunks USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64);
+
 ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS ts_content tsvector 
     GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED;
 CREATE INDEX IF NOT EXISTS idx_chunks_fts ON document_chunks USING gin(ts_content);
