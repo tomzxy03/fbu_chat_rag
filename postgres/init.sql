@@ -1,6 +1,12 @@
 -- Bật pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Bật unaccent extension + immutable wrapper (cho FTS không dấu)
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE OR REPLACE FUNCTION immutable_unaccent(text) RETURNS text AS $$
+  SELECT public.unaccent($1);
+$$ LANGUAGE sql IMMUTABLE STRICT;
+
 -- Bảng lưu các chunks tài liệu
 -- Owner: postgres/init.sql (cần pgvector extension trước khi Flyway chạy)
 CREATE TABLE IF NOT EXISTS document_chunks (
