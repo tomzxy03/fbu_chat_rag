@@ -62,16 +62,16 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
 SQL
 echo "pgvector + unaccent + immutable_unaccent installed!!"
 
-echo "=== 5. Chạy init.sql ==="
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ ! -f "$SCRIPT_DIR/postgres/init.sql" ]; then
-    echo "Cảnh báo: Không tìm thấy file init.sql tại $SCRIPT_DIR/postgres/. Bỏ qua bước 5."
-else
-    # Thêm PGPASSWORD để psql không hỏi mật khẩu khi chạy tự động
-    PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -h localhost -f "$SCRIPT_DIR/postgres/init.sql"
-fi
+# echo "=== 5. Chạy init.sql ==="
+# SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# if [ ! -f "$SCRIPT_DIR/postgres/init.sql" ]; then
+#     echo "Cảnh báo: Không tìm thấy file init.sql tại $SCRIPT_DIR/postgres/. Bỏ qua bước 5."
+# else
+#     # Thêm PGPASSWORD để psql không hỏi mật khẩu khi chạy tự động
+#     PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -h localhost -f "$SCRIPT_DIR/postgres/init.sql"
+# fi
 
-echo "=== 6. Cho phép Docker containers kết nối ==="
+echo "=== 5. Cho phép Docker containers kết nối ==="
 PG_HBA=$(sudo -u postgres psql -t -c "SHOW hba_file;" | tr -d ' ')
 PG_CONF=$(sudo -u postgres psql -t -c "SHOW config_file;" | tr -d ' ')
 
