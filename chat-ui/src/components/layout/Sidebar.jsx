@@ -1,4 +1,4 @@
-import { Bot, FileText, LogIn, LogOut, MessageSquare, Plus } from 'lucide-react';
+import { Bot, FileText, LogIn, LogOut, MessageCircle, MessageSquare, Plus } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 
 export function Sidebar({ auth, chat, isAdmin, onLoginClick }) {
@@ -43,6 +43,10 @@ export function Sidebar({ auth, chat, isAdmin, onLoginClick }) {
         <NavLink to="/" end>
           <MessageSquare size={17} />
           Chat
+        </NavLink>
+        <NavLink to="/feedback">
+          <MessageCircle size={17} />
+          Góp ý
         </NavLink>
         {isAdmin && (
           <NavLink to="/admin">

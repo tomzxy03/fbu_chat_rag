@@ -37,7 +37,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -445,7 +446,8 @@ button {
 .chat-input-area input,
 .auth-form input,
 .admin-panel input,
-.admin-panel select {
+.admin-panel select,
+.admin-panel textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-secondary);
@@ -462,7 +464,8 @@ button {
 .chat-input-area input:focus,
 .auth-form input:focus,
 .admin-panel input:focus,
-.admin-panel select:focus {
+.admin-panel select:focus,
+.admin-panel textarea:focus {
   border-color: var(--accent);
 }
 
@@ -566,9 +569,15 @@ button {
 
 .auth-form input,
 .admin-panel input,
-.admin-panel select {
+.admin-panel select,
+.admin-panel textarea {
   width: 100%;
   padding: 12px;
+}
+
+.admin-panel textarea {
+  min-height: 150px;
+  resize: vertical;
 }
 
 .primary-button {
@@ -635,6 +644,32 @@ button {
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 700;
+}
+
+.feedback-wrap {
+  width: min(720px, 100%);
+  padding: 24px;
+}
+
+.feedback-form {
+  display: grid;
+  gap: 14px;
+}
+
+.feedback-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.feedback-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  justify-self: start;
 }
 
 .field-row {

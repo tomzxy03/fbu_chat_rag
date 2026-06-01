@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '../components/layout/AppLayout';
 import { AdminPage } from '../pages/AdminPage';
 import { ChatPage } from '../pages/ChatPage';
+import { FeedbackPage } from '../pages/FeedbackPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 
 export function AppRouter({ auth, chat, documents, isAdmin, onLoginClick }) {
@@ -13,6 +14,7 @@ export function AppRouter({ auth, chat, documents, isAdmin, onLoginClick }) {
           path="admin"
           element={<AdminPage documents={documents} isAdmin={isAdmin} onLogin={onLoginClick} token={auth.token} />}
         />
+        <Route path="feedback" element={<FeedbackPage />} />
         <Route path="chat" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

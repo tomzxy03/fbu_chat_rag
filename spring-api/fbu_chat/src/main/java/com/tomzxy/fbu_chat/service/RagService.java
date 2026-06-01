@@ -195,6 +195,7 @@ public class RagService {
             "QUY TẮC XỬ LÝ KHI THIẾU THÔNG TIN:\n" +
             "- Nếu CONTEXT được cung cấp KHÔNG CHỨA thông tin để trả lời CÂU HỎI HIỆN TẠI, hoặc thông tin quá sơ sài/lệch chủ đề, TUYỆT ĐỐI không tự bịa câu trả lời.\n" +
             "- Khi thiếu thông tin, hãy nói rõ hệ thống dữ liệu hiện chưa có thông tin chính thức về chủ đề người dùng hỏi và đề nghị người dùng liên hệ Phòng Công tác Sinh viên hoặc email support-chatbot@fbu.edu.vn để góp ý/bổ sung tài liệu.\n" +
+            "- Khi bạn phải trả lời theo hướng thiếu thông tin, hãy bắt đầu câu trả lời bằng token [NO_DATA].\n" +
             "- Tuyệt đối không dùng kiến thức Internet hoặc kiến thức chung để đoán quy định nội bộ của FBU.\n\n" +
         
             "QUY TẮC ĐỊNH DẠNG NGUỒN TRÍCH DẪN:\n" +
@@ -254,14 +255,21 @@ public class RagService {
         groqPayload.put("max_tokens", 1024);
 
         String answer = callGroq(groqPayload);
+        boolean noDataAnswer = isNoDataAnswer(answer);
+        if (noDataAnswer) {
+            answer = stripNoDataMarker(answer);
+            log.info("LLM reported insufficient context. Clearing sources from response.");
+        }
 
-        List<Map<String, Object>> sources = topContexts.stream().map(c -> {
-            Map<String, Object> s = new HashMap<>();
-            s.put("file", c.getSourceFile());
-            s.put("year", c.getYear());
-            s.put("doc_type", c.getDocType());
-            return s;
-        }).collect(Collectors.toList());
+        List<Map<String, Object>> sources = noDataAnswer
+                ? List.of()
+                : topContexts.stream().map(c -> {
+                    Map<String, Object> s = new HashMap<>();
+                    s.put("file", c.getSourceFile());
+                    s.put("year", c.getYear());
+                    s.put("doc_type", c.getDocType());
+                    return s;
+                }).collect(Collectors.toList());
 
         UUID messageId = null;
         if (conversation != null) {
@@ -456,6 +464,20 @@ public class RagService {
                 .answer(answer)
                 .sources(List.of())
                 .build();
+    }
+
+    private boolean isNoDataAnswer(String answer) {
+        if (answer == null) {
+            return false;
+        }
+        String normalized = answer.toLowerCase(Locale.ROOT);
+        return normalized.startsWith("[no_data]")
+                || normalized.contains("hệ thống dữ liệu") && normalized.contains("chưa có thông tin chính thức")
+                || normalized.contains("không tìm thấy thông tin này trong tài liệu nội bộ");
+    }
+
+    private String stripNoDataMarker(String answer) {
+        return answer.replaceFirst("(?i)^\\s*\\[NO_DATA]\\s*", "").trim();
     }
 
     private String callGroq(Map<String, Object> payload) {
