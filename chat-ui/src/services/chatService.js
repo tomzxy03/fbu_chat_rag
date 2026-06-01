@@ -13,25 +13,19 @@ export async function getConversationMessages(conversationId, token, onUnauthori
 export async function askQuestion({ query, conversationId, history, token, onUnauthorized }) {
   const payload = { query };
   if (conversationId) payload.conversationId = conversationId;
-  if (Array.isArray(history) && history.length > 0) payload.history = history;
+  if (Array.isArray(history)) payload.history = history;
 
   const data = await chatRepository.sendChatMessage(payload, token, onUnauthorized);
 
   return {
     conversationId: data.conversationId,
-    answer: appendSources(data.answer || '', data.sources)
+    messageId: data.messageId,
+    query: data.query,
+    answer: data.answer || '',
+    sources: Array.isArray(data.sources) ? data.sources : []
   };
 }
 
 export function createConversationTitle(text) {
   return text.length > 40 ? `${text.slice(0, 37)}...` : text;
-}
-
-function appendSources(answer, sources) {
-  if (!Array.isArray(sources) || sources.length === 0) return answer;
-
-  const uniqueFiles = [...new Set(sources.map((source) => source.file).filter(Boolean))];
-  if (uniqueFiles.length === 0) return answer;
-
-  return `${answer}\n\nNguồn: ${uniqueFiles.join(', ')}`;
 }

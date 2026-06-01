@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.text.Normalizer;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,6 +43,12 @@ public class RagService {
 
     private static final int HISTORY_WINDOW = 4;
     private static final int MAX_HISTORY_CONTENT_LENGTH = 4000;
+    private static final Set<String> FBU_INFORMATION_KEYWORDS = Set.of(
+            "fbu", "dai hoc", "truong", "sinh vien", "giang vien", "hoc phi", "tin chi", "nganh", "khoa",
+            "lich hoc", "lich thi", "diem", "quy che", "quy dinh", "hoc bong", "hoc vu", "tot nghiep",
+            "dang ky", "xet tuyen", "tuyen sinh", "chuong trinh", "mon hoc", "ky hoc", "dao tao", "van bang",
+            "chung chi", "thuc tap", "bao luu", "chuyen nganh", "mien giam", "ky tuc", "thu vien", "phong ban",
+            "tai chinh", "ngan hang", "ke toan", "cong nghe thong tin", "cntt");
 
     private final RestTemplate aiRestTemplate;
     private final String aiBaseUrl;
@@ -84,6 +91,12 @@ public class RagService {
             } else {
                 conversation = createConversation(request.getQuery(), userId);
             }
+        }
+
+        Optional<String> directAnswer = getDirectAnswer(request.getQuery());
+        if (directAnswer.isPresent()) {
+            log.info("Detected non-RAG conversational query. Skipping embedding/search pipeline.");
+            return buildDirectChatResponse(request, conversation, directAnswer.get());
         }
 
         log.info("Encoding query using AI Service...");
@@ -339,6 +352,92 @@ public class RagService {
 
     private boolean isAllowedHistoryRole(String role) {
         return "user".equals(role) || "assistant".equals(role);
+    }
+
+    private Optional<String> getDirectAnswer(String query) {
+        String normalized = normalizeForIntent(query);
+        if (normalized.isBlank() || containsFbuInformationKeyword(normalized)) {
+            return Optional.empty();
+        }
+
+        if (matchesAny(normalized, "xin chao", "xin chao ban", "chao", "chao ban", "hello", "hi", "hey", "alo")) {
+            return Optional.of("Xin chào bạn! 👋 Tôi là Trợ lý AI của Trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). " +
+                    "Mọi thông tin về học phí, quy chế, học bổng hay lịch học... bạn cứ gửi câu hỏi, mình sẽ hỗ trợ tra cứu ngay nhé!");
+        }
+
+        if (normalized.contains("cam on")
+                || matchesAny(normalized, "thanks", "thank you", "ok", "oke")) {
+            return Optional.of("Rất sẵn lòng hỗ trợ bạn! 🥰 Nếu cần tra cứu thêm bất kỳ thông tin nào khác từ tài liệu của FBU, bạn cứ tự nhiên đặt câu hỏi nha.");
+        }
+
+        if (matchesAny(normalized, "tam biet", "bye", "goodbye")) {
+            return Optional.of("Rất sẵn lòng hỗ trợ bạn! 🥰 Nếu cần tra cứu thêm bất kỳ thông tin nào khác từ tài liệu của FBU, bạn cứ tự nhiên đặt câu hỏi nha.");
+        }
+
+        if (normalized.contains("la ai") 
+        || normalized.contains("lam duoc gi") 
+        || normalized.contains("giup duoc gi")
+        || normalized.contains("tro ly gi")) {
+            return Optional.of("Tôi là trợ lý AI của FBU, hỗ trợ trả lời câu hỏi dựa trên tài liệu nội bộ của trường. Với các câu hỏi cần tra cứu, tôi sẽ tìm nguồn phù hợp và trả lời kèm thông tin liên quan.");
+        }
+
+        return Optional.empty();
+    }
+
+    private ChatResponse buildDirectChatResponse(ChatRequest request, Conversation conversation, String answer) {
+        UUID messageId = null;
+        if (conversation != null) {
+            Message userMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("user")
+                    .content(request.getQuery())
+                    .build();
+            messageRepo.save(userMsg);
+
+            Message assistantMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("assistant")
+                    .content(answer)
+                    .sources("[]")
+                    .build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+
+            conversationRepo.save(conversation);
+        }
+
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId)
+                .query(request.getQuery())
+                .answer(answer)
+                .sources(List.of())
+                .build();
+    }
+
+    private boolean containsFbuInformationKeyword(String normalizedQuery) {
+        return FBU_INFORMATION_KEYWORDS.stream().anyMatch(normalizedQuery::contains);
+    }
+
+    private boolean matchesAny(String normalizedQuery, String... candidates) {
+        for (String candidate : candidates) {
+            if (normalizedQuery.equals(normalizeForIntent(candidate))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeForIntent(String value) {
+        if (value == null) {
+            return "";
+        }
+        String withoutDiacritics = Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "");
+        return withoutDiacritics.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     public List<Message> getHistoryForUser(UUID conversationId, String userId) {

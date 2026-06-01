@@ -77,7 +77,15 @@ export function useChat({ token, onUnauthorized }) {
 
       if (result.conversationId) setCurrentConvId(result.conversationId);
       setChatTitle(createConversationTitle(text));
-      setMessages((items) => [...items, { role: 'assistant', content: result.answer }]);
+      setMessages((items) => [
+        ...items,
+        {
+          role: 'assistant',
+          content: result.answer,
+          messageId: result.messageId,
+          sources: result.sources
+        }
+      ]);
       if (token) loadConversations();
     } catch (err) {
       setMessages((items) => [...items, { role: 'assistant', content: `Lỗi: ${err.message}` }]);

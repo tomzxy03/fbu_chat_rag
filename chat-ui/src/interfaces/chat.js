@@ -6,6 +6,8 @@
  * @typedef {Object} ChatMessage
  * @property {MessageRole} role
  * @property {string} content
+ * @property {number|string=} messageId
+ * @property {ChatSource[]=} sources
  */
 
 /**
@@ -30,6 +32,8 @@
  * @typedef {Object} ChatResponse
  * @property {string=} answer
  * @property {number|string=} conversationId
+ * @property {number|string=} messageId
+ * @property {string=} query
  * @property {ChatSource[]=} sources
  */
 
