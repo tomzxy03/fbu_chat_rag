@@ -9,6 +9,13 @@
  */
 
 /**
+ * @typedef {Object} ChatRequest
+ * @property {string} query
+ * @property {number|string=} conversationId
+ * @property {ChatMessage[]=} history
+ */
+
+/**
  * @typedef {Object} Conversation
  * @property {number|string} id
  * @property {string=} title

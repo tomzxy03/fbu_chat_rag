@@ -10,9 +10,10 @@ export async function getConversationMessages(conversationId, token, onUnauthori
   return Array.isArray(data) ? data : [];
 }
 
-export async function askQuestion({ query, conversationId, token, onUnauthorized }) {
+export async function askQuestion({ query, conversationId, history, token, onUnauthorized }) {
   const payload = { query };
   if (conversationId) payload.conversationId = conversationId;
+  if (Array.isArray(history) && history.length > 0) payload.history = history;
 
   const data = await chatRepository.sendChatMessage(payload, token, onUnauthorized);
 

@@ -2,6 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { askQuestion, createConversationTitle, getConversationMessages, getConversations } from '../services/chatService';
 
 const DEFAULT_TITLE = 'Cuộc trò chuyện mới';
+const HISTORY_WINDOW_MESSAGES = 8;
+
+function buildAnonymousHistory(items) {
+  return items
+    .filter((message) => (
+      (message.role === 'user' || message.role === 'assistant')
+      && typeof message.content === 'string'
+      && message.content.trim()
+    ))
+    .slice(-HISTORY_WINDOW_MESSAGES)
+    .map(({ role, content }) => ({ role, content }));
+}
 
 export function useChat({ token, onUnauthorized }) {
   const [conversations, setConversations] = useState([]);
@@ -48,6 +60,8 @@ export function useChat({ token, onUnauthorized }) {
     const text = (suggestionText ?? query).trim();
     if (!text || isSending) return;
 
+    const history = token ? undefined : buildAnonymousHistory(messages);
+
     setMessages((items) => [...items, { role: 'user', content: text }]);
     setQuery('');
     setIsSending(true);
@@ -56,6 +70,7 @@ export function useChat({ token, onUnauthorized }) {
       const result = await askQuestion({
         query: text,
         conversationId: currentConvId,
+        history,
         token,
         onUnauthorized
       });

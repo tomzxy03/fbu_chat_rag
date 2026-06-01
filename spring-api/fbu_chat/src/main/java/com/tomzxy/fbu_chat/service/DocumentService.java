@@ -55,15 +55,12 @@ public class DocumentService {
         String filename = file.getOriginalFilename();
         boolean isMarkdown = filename != null && filename.toLowerCase().endsWith(".md");
 
-        // 1. Idempotency: Xóa dữ liệu cũ
         log.info("Xóa dữ liệu cũ cho file: {}", filename);
         if (isMarkdown) {
-            // Cascade: xóa parent → tự xóa child có parent_id
             parentChunkRepository.deleteBySourceFile(filename);
         }
         chunkRepository.deleteBySourceFile(filename);
 
-        // 2. Gửi sang Python lấy chunks
         List<ChunkCandidate> candidates = callPythonChunker(file);
         if (candidates == null || candidates.isEmpty()) {
             throw new RuntimeException("AI Service không trả về chunk nào");
@@ -71,7 +68,6 @@ public class DocumentService {
 
         log.info("Đã extract {} chunks từ Python.", candidates.size());
 
-        // 3. Xử lý khác nhau cho .md và non-.md
         List<DocumentChunk> entitiesToSave;
         if (isMarkdown) {
             entitiesToSave = processMarkdownCandidates(candidates, filename);
@@ -79,7 +75,6 @@ public class DocumentService {
             entitiesToSave = processLegacyCandidates(candidates, filename);
         }
 
-        // 4. Lưu toàn bộ batch bằng Spring Data
         chunkRepository.saveAll(entitiesToSave);
         log.info("Lưu thành công {} chunks (với vector 384) vào database.", entitiesToSave.size());
 
@@ -90,17 +85,13 @@ public class DocumentService {
                 .build();
     }
 
-    // ─── .md flow: parent-child chunking ──────────────────────────────────────
-
     private List<DocumentChunk> processMarkdownCandidates(List<ChunkCandidate> candidates, String filename) {
-        // Group by parentHeading → tạo ParentChunk per unique heading
         Map<String, List<ChunkCandidate>> grouped = candidates.stream()
                 .collect(Collectors.groupingBy(
                         c -> c.getParentHeading() != null ? c.getParentHeading() : "Nội dung chính",
                         LinkedHashMap::new,
                         Collectors.toList()));
 
-        // Lưu ParentChunks và map heading → UUID
         Map<String, UUID> headingToParentId = new HashMap<>();
         for (Map.Entry<String, List<ChunkCandidate>> entry : grouped.entrySet()) {
             ChunkCandidate sample = entry.getValue().get(0);
@@ -118,7 +109,6 @@ public class DocumentService {
 
         log.info("Tạo {} parent chunks cho file .md", headingToParentId.size());
 
-        // Embed child chunks theo batch
         List<DocumentChunk> entities = new ArrayList<>();
         int batchSize = 10;
 
@@ -152,8 +142,6 @@ public class DocumentService {
         return entities;
     }
 
-    // ─── Legacy flow: PDF/DOCX/etc (no parent) ───────────────────────────────
-
     private List<DocumentChunk> processLegacyCandidates(List<ChunkCandidate> candidates, String filename) {
         int year = extractYear(filename);
         String docType = extractDocType(filename);
@@ -181,15 +169,12 @@ public class DocumentService {
                 chunk.setEmbedding(toFloatArray(embeddings.get(k)));
                 chunk.setDocType(docType);
                 chunk.setYear(year);
-                // parentId = null cho non-.md
                 entities.add(chunk);
             }
         }
 
         return entities;
     }
-
-    // ─── Python API calls ─────────────────────────────────────────────────────
 
     private List<ChunkCandidate> callPythonChunker(MultipartFile file) {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
@@ -219,7 +204,7 @@ public class DocumentService {
     private List<List<Float>> getEmbeddingsFromPython(List<String> texts) {
         EmbeddingRequest req = new EmbeddingRequest();
         req.setTexts(texts);
-        req.setMode("passage"); // e5-small-v2: document phải dùng prefix "passage:"
+        req.setMode("passage");
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -232,8 +217,6 @@ public class DocumentService {
 
         return response.getBody() != null ? response.getBody().getEmbeddings() : null;
     }
-
-    // ─── Utilities ────────────────────────────────────────────────────────────
 
     private static float[] toFloatArray(List<Float> vec) {
         float[] arr = new float[vec.size()];
@@ -265,11 +248,6 @@ public class DocumentService {
         return "general";
     }
 
-    // ─── Document Management ──────────────────────────────────────────────────
-
-    /**
-     * Trả về danh sách tài liệu đã ingest, group theo source_file.
-     */
     public List<DocumentSummaryDto> listDocuments() {
         return chunkRepository.findAllSummaries().stream()
                 .map(p -> DocumentSummaryDto.builder()
@@ -281,12 +259,6 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Xóa toàn bộ chunks của một tài liệu theo tên file.
-     * Xóa parent_chunks trước → cascade tự xóa child document_chunks có parent_id.
-     * Sau đó xóa document_chunks không có parent (legacy PDF data).
-     * Idempotent: không throw nếu file không tồn tại.
-     */
     @Transactional
     public void deleteDocument(String filename) {
         log.info("Xóa tài liệu: {}", filename);
