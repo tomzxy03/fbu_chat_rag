@@ -53,6 +53,7 @@ Backend chi nhan `role` la `user` hoac `assistant`; cac role khac se bi bo qua. 
 - User da dang nhap: frontend khong can gui `history`. Backend lay history tu PostgreSQL theo `conversationId`, sau do luu message moi.
 - User an danh: backend khong luu DB. Frontend can giu messages trong React state va gui cac message truoc do qua `history`.
 - Cau hoi xa giao ro rang nhu `xin chao`, `cam on`, `ban la ai`: backend tra loi truc tiep, khong tim chunk tai lieu, va `sources` se la mang rong.
+- Cau hoi can tra cuu nhung he thong khong tim thay chunk tai lieu dang tin cay: backend tra fallback, khong goi LLM sinh cau tra loi tu context rong, va `sources` se la mang rong.
 
 ### Anonymous example
 
@@ -107,6 +108,20 @@ For logged-in chat, do not send `history`; backend ignores client-side history a
 ```
 
 Frontend nen hien thi answer binh thuong va khong render khu vuc nguon khi `sources` rong.
+
+### No-data fallback response
+
+```json
+{
+  "conversationId": "0d4df6b7-8c8b-4c8d-bf46-bc3eb80bb719",
+  "messageId": "ea7a2d34-921c-4b6e-a342-901bc0931234",
+  "query": "Bao gio co lich thi lai tot nghiep nam 2026?",
+  "answer": "Hien tai he thong du lieu cua minh chua co thong tin chinh thuc ve cau hoi: \"Bao gio co lich thi lai tot nghiep nam 2026?\"...",
+  "sources": []
+}
+```
+
+Voi response nay, frontend xu ly giong casual response: hien thi `answer` va khong render khu vuc nguon.
 
 ### Response Body (Dữ liệu trả về)
 

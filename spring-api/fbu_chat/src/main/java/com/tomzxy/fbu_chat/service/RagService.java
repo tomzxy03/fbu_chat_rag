@@ -168,20 +168,13 @@ public class RagService {
         }
 
         if (topContexts.isEmpty()) {
-            log.info("No results at threshold {}, relaxing to 1.0...", SIMILARITY_THRESHOLD);
-            List<ChunkResult> relaxedResults = docRepo.findTopRelatedContexts(vectorStr, topK, 1.0);
-            topContexts = filterByMetadata(relaxedResults, request);
-            log.info("Pass 4 (relaxed vector) after metadata filter: {} results", topContexts.size());
+            log.info("No reliable document chunks found. Triggering no-data fallback response.");
+            return buildFallbackChatResponse(request, conversation);
         }
 
         log.info("Final chunks for LLM: {}", topContexts.size());
 
-        String contextText;
-        if (topContexts.isEmpty()) {
-            contextText = "Không tìm thấy tài liệu liên quan.";
-        } else {
-            contextText = buildContextWithParents(topContexts);
-        }
+        String contextText = buildContextWithParents(topContexts);
 
         log.info("=== CHUNKS SENT TO LLM ({}) ===", topContexts.size());
         for (int i = 0; i < topContexts.size(); i++) {
@@ -205,6 +198,10 @@ public class RagService {
             "3. Trả lời bằng tiếng Việt, ngắn gọn, đi thẳng vào vấn đề, phân tách các ý bằng dấu gạch đầu dòng rõ ràng.\n" +
             "4. QUẢN LÝ LỊCH SỬ HỘI THOẠI: Đọc kỹ các câu trả lời trước đó trong lịch sử. KHÔNG lặp lại thông tin đã cung cấp. Chỉ bổ sung thông tin MỚI chưa được đề cập.\n" +
             "5. Nếu câu hỏi là dạng tiếp diễn (ví dụ: 'còn gì nữa không?', 'còn gì khác không?') mà tất cả thông tin trong CONTEXT đã được bạn liệt kê ở các câu trả lời trước, hãy nói rõ: 'Tôi đã cung cấp toàn bộ thông tin tìm thấy trong tài liệu nội bộ liên quan đến vấn đề này.'\n\n" +
+            "QUY TẮC XỬ LÝ KHI THIẾU THÔNG TIN:\n" +
+            "- Nếu CONTEXT được cung cấp KHÔNG CHỨA thông tin để trả lời CÂU HỎI HIỆN TẠI, hoặc thông tin quá sơ sài/lệch chủ đề, TUYỆT ĐỐI không tự bịa câu trả lời.\n" +
+            "- Khi thiếu thông tin, hãy nói rõ hệ thống dữ liệu hiện chưa có thông tin chính thức về chủ đề người dùng hỏi và đề nghị người dùng liên hệ Phòng Công tác Sinh viên hoặc email support-chatbot@fbu.edu.vn để góp ý/bổ sung tài liệu.\n" +
+            "- Tuyệt đối không dùng kiến thức Internet hoặc kiến thức chung để đoán quy định nội bộ của FBU.\n\n" +
         
             "QUY TẮC ĐỊNH DẠNG NGUỒN TRÍCH DẪN:\n" +
             "- Tuyệt đối KHÔNG tự viết chữ 'Nguồn:' hoặc liệt kê danh sách file ở cuối câu trả lời (vì hệ thống đã có bộ lọc tự động hiển thị nguồn riêng).\n" +
@@ -385,6 +382,41 @@ public class RagService {
     }
 
     private ChatResponse buildDirectChatResponse(ChatRequest request, Conversation conversation, String answer) {
+        UUID messageId = null;
+        if (conversation != null) {
+            Message userMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("user")
+                    .content(request.getQuery())
+                    .build();
+            messageRepo.save(userMsg);
+
+            Message assistantMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("assistant")
+                    .content(answer)
+                    .sources("[]")
+                    .build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+
+            conversationRepo.save(conversation);
+        }
+
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId)
+                .query(request.getQuery())
+                .answer(answer)
+                .sources(List.of())
+                .build();
+    }
+
+    private ChatResponse buildFallbackChatResponse(ChatRequest request, Conversation conversation) {
+        String answer = "Hiện tại hệ thống dữ liệu của mình chưa có thông tin chính thức về câu hỏi: \""
+                + request.getQuery()
+                + "\".\n\nNếu bạn biết hoặc có tài liệu chính thức về nội dung này, bạn có thể gửi phản hồi qua Phòng Công tác Sinh viên hoặc email support-chatbot@fbu.edu.vn để hệ thống được cập nhật đầy đủ hơn. Cảm ơn bạn đã góp ý.";
+
         UUID messageId = null;
         if (conversation != null) {
             Message userMsg = Message.builder()
