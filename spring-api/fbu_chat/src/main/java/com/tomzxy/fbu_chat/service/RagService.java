@@ -28,7 +28,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
-import java.text.Normalizer;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -43,12 +42,7 @@ public class RagService {
 
     private static final int HISTORY_WINDOW = 4;
     private static final int MAX_HISTORY_CONTENT_LENGTH = 4000;
-    private static final Set<String> FBU_INFORMATION_KEYWORDS = Set.of(
-            "fbu", "dai hoc", "truong", "sinh vien", "giang vien", "hoc phi", "tin chi", "nganh", "khoa",
-            "lich hoc", "lich thi", "diem", "quy che", "quy dinh", "hoc bong", "hoc vu", "tot nghiep",
-            "dang ky", "xet tuyen", "tuyen sinh", "chuong trinh", "mon hoc", "ky hoc", "dao tao", "van bang",
-            "chung chi", "thuc tap", "bao luu", "chuyen nganh", "mien giam", "ky tuc", "thu vien", "phong ban",
-            "tai chinh", "ngan hang", "ke toan", "cong nghe thong tin", "cntt");
+    private static final String GROQ_MODEL = "llama-3.3-70b-versatile";
 
     private final RestTemplate aiRestTemplate;
     private final String aiBaseUrl;
@@ -93,10 +87,10 @@ public class RagService {
             }
         }
 
-        Optional<String> directAnswer = getDirectAnswer(request.getQuery());
-        if (directAnswer.isPresent()) {
+        ensureGroqApiKeyConfigured();
+        if (!isFbuInformationQuery(request.getQuery())) {
             log.info("Detected non-RAG conversational query. Skipping embedding/search pipeline.");
-            return buildDirectChatResponse(request, conversation, directAnswer.get());
+            return buildConversationalChatResponse(request, conversation);
         }
 
         log.info("Encoding query using AI Service...");
@@ -212,14 +206,6 @@ public class RagService {
             "Trả lời (Tuân thủ tuyệt đối quy tắc định dạng nguồn):";
 
         log.info("Calling Groq LLM Generator...");
-        if (groqApiKey == null || groqApiKey.isEmpty()) {
-            throw new RuntimeException("GROQ_API_KEY chưa được cấu hình ở môi trường Spring Boot");
-        }
-
-        HttpHeaders groqHeaders = new HttpHeaders();
-        groqHeaders.setBearerAuth(groqApiKey);
-        groqHeaders.setContentType(MediaType.APPLICATION_JSON);
-
         Map<String, Object> groqMsg1 = new HashMap<>();
         groqMsg1.put("role", "system");
         groqMsg1.put("content", systemPrompt);
@@ -262,22 +248,12 @@ public class RagService {
         groqMessages.add(groqMsg2);
 
         Map<String, Object> groqPayload = new HashMap<>();
-        groqPayload.put("model", "llama-3.3-70b-versatile");
+        groqPayload.put("model", GROQ_MODEL);
         groqPayload.put("messages", groqMessages);
         groqPayload.put("temperature", 0.3);
         groqPayload.put("max_tokens", 1024);
 
-        HttpEntity<Map<String, Object>> groqEntity = new HttpEntity<>(groqPayload, groqHeaders);
-        Map groqResp = groqRestTemplate.postForObject("https://api.groq.com/openai/v1/chat/completions", groqEntity,
-                Map.class);
-
-        if (groqResp == null || !groqResp.containsKey("choices")) {
-            throw new RuntimeException("Lỗi phản hồi từ Groq");
-        }
-
-        List<Map<String, Object>> choices = (List<Map<String, Object>>) groqResp.get("choices");
-        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
-        String answer = (String) message.get("content");
+        String answer = callGroq(groqPayload);
 
         List<Map<String, Object>> sources = topContexts.stream().map(c -> {
             Map<String, Object> s = new HashMap<>();
@@ -351,37 +327,72 @@ public class RagService {
         return "user".equals(role) || "assistant".equals(role);
     }
 
-    private Optional<String> getDirectAnswer(String query) {
-        String normalized = normalizeForIntent(query);
-        if (normalized.isBlank() || containsFbuInformationKeyword(normalized)) {
-            return Optional.empty();
+    private boolean isFbuInformationQuery(String query) {
+        String classifierPrompt = "Phân loại câu hỏi của người dùng cho chatbot FBU.\n"
+                + "Trả về đúng một nhãn:\n"
+                + "- FBU_INFO: nếu câu hỏi cần tra cứu thông tin/quy định/tài liệu nội bộ của Đại học Tài chính - Ngân hàng Hà Nội (FBU), ví dụ học phí, lịch học, lịch thi, học bổng, tuyển sinh, quy chế, ngành học.\n"
+                + "- GENERAL_CHAT: nếu là chào hỏi, cảm ơn, tạm biệt, hỏi bạn là ai, trò chuyện xã giao, câu đùa, hoặc câu không cần tra cứu tài liệu FBU. Chấp nhận lỗi gõ phím/viết sai chính tả như 'xin chafo'.\n"
+                + "Chỉ trả về FBU_INFO hoặc GENERAL_CHAT. Không giải thích.";
+
+        List<Map<String, Object>> messages = new ArrayList<>();
+        messages.add(Map.of("role", "system", "content", classifierPrompt));
+        messages.add(Map.of("role", "user", "content", query));
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("model", GROQ_MODEL);
+        payload.put("messages", messages);
+        payload.put("temperature", 0);
+        payload.put("max_tokens", 8);
+
+        String decision = callGroq(payload).trim().toUpperCase(Locale.ROOT);
+        if (decision.contains("GENERAL_CHAT")) {
+            return false;
+        }
+        if (decision.contains("FBU_INFO")) {
+            return true;
         }
 
-        if (matchesAny(normalized, "xin chao", "xin chao ban", "chao", "chao ban", "hello", "hi", "hey", "alo")) {
-            return Optional.of("Xin chào bạn! 👋 Tôi là Trợ lý AI của Trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). " +
-                    "Mọi thông tin về học phí, quy chế, học bổng hay lịch học... bạn cứ gửi câu hỏi, mình sẽ hỗ trợ tra cứu ngay nhé!");
-        }
-
-        if (normalized.contains("cam on")
-                || matchesAny(normalized, "thanks", "thank you", "ok", "oke")) {
-            return Optional.of("Rất sẵn lòng hỗ trợ bạn! 🥰 Nếu cần tra cứu thêm bất kỳ thông tin nào khác từ tài liệu của FBU, bạn cứ tự nhiên đặt câu hỏi nha.");
-        }
-
-        if (matchesAny(normalized, "tam biet", "bye", "goodbye")) {
-            return Optional.of("Rất sẵn lòng hỗ trợ bạn! 🥰 Nếu cần tra cứu thêm bất kỳ thông tin nào khác từ tài liệu của FBU, bạn cứ tự nhiên đặt câu hỏi nha.");
-        }
-
-        if (normalized.contains("la ai") 
-        || normalized.contains("lam duoc gi") 
-        || normalized.contains("giup duoc gi")
-        || normalized.contains("tro ly gi")) {
-            return Optional.of("Tôi là trợ lý AI của FBU, hỗ trợ trả lời câu hỏi dựa trên tài liệu nội bộ của trường. Với các câu hỏi cần tra cứu, tôi sẽ tìm nguồn phù hợp và trả lời kèm thông tin liên quan.");
-        }
-
-        return Optional.empty();
+        log.warn("Unexpected intent classifier response '{}'. Falling back to RAG.", decision);
+        return true;
     }
 
-    private ChatResponse buildDirectChatResponse(ChatRequest request, Conversation conversation, String answer) {
+    private ChatResponse buildConversationalChatResponse(ChatRequest request, Conversation conversation) {
+        List<Map<String, Object>> groqMessages = new ArrayList<>();
+        groqMessages.add(Map.of(
+                "role", "system",
+                "content", "Bạn là trợ lý AI thân thiện của trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). "
+                        + "Trả lời các câu xã giao/tán gẫu bằng tiếng Việt, tự nhiên, ngắn gọn. "
+                        + "Nếu người dùng hỏi thông tin chính thức cần tra cứu tài liệu FBU, hãy gợi ý họ đặt câu hỏi cụ thể để hệ thống tra cứu nguồn nội bộ."));
+
+        if (conversation != null) {
+            List<Message> recentHistory = messageRepo
+                    .findByConversationIdOrderByCreatedAtAsc(conversation.getId());
+            int fromIdx = Math.max(0, recentHistory.size() - HISTORY_WINDOW * 2);
+            for (Message histMsg : recentHistory.subList(fromIdx, recentHistory.size())) {
+                addHistoryMessage(groqMessages, histMsg.getRole(), histMsg.getContent());
+            }
+        } else if (request.getHistory() != null && !request.getHistory().isEmpty()) {
+            int fromIdx = Math.max(0, request.getHistory().size() - HISTORY_WINDOW * 2);
+            List<ChatHistoryMessage> clientHistory = request.getHistory()
+                    .subList(fromIdx, request.getHistory().size());
+
+            for (ChatHistoryMessage histMsg : clientHistory) {
+                if (histMsg == null) {
+                    continue;
+                }
+                addHistoryMessage(groqMessages, histMsg.getRole(), histMsg.getContent());
+            }
+        }
+
+        groqMessages.add(Map.of("role", "user", "content", request.getQuery()));
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("model", GROQ_MODEL);
+        payload.put("messages", groqMessages);
+        payload.put("temperature", 0.4);
+        payload.put("max_tokens", 256);
+
+        String answer = callGroq(payload);
         UUID messageId = null;
         if (conversation != null) {
             Message userMsg = Message.builder()
@@ -447,29 +458,30 @@ public class RagService {
                 .build();
     }
 
-    private boolean containsFbuInformationKeyword(String normalizedQuery) {
-        return FBU_INFORMATION_KEYWORDS.stream().anyMatch(normalizedQuery::contains);
+    private String callGroq(Map<String, Object> payload) {
+        ensureGroqApiKeyConfigured();
+
+        HttpHeaders groqHeaders = new HttpHeaders();
+        groqHeaders.setBearerAuth(groqApiKey);
+        groqHeaders.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> groqEntity = new HttpEntity<>(payload, groqHeaders);
+        Map groqResp = groqRestTemplate.postForObject("https://api.groq.com/openai/v1/chat/completions", groqEntity,
+                Map.class);
+
+        if (groqResp == null || !groqResp.containsKey("choices")) {
+            throw new RuntimeException("Lỗi phản hồi từ Groq");
+        }
+
+        List<Map<String, Object>> choices = (List<Map<String, Object>>) groqResp.get("choices");
+        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+        return (String) message.get("content");
     }
 
-    private boolean matchesAny(String normalizedQuery, String... candidates) {
-        for (String candidate : candidates) {
-            if (normalizedQuery.equals(normalizeForIntent(candidate))) {
-                return true;
-            }
+    private void ensureGroqApiKeyConfigured() {
+        if (groqApiKey == null || groqApiKey.isEmpty()) {
+            throw new RuntimeException("GROQ_API_KEY chưa được cấu hình ở môi trường Spring Boot");
         }
-        return false;
-    }
-
-    private String normalizeForIntent(String value) {
-        if (value == null) {
-            return "";
-        }
-        String withoutDiacritics = Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "");
-        return withoutDiacritics.toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9\\s]", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
     }
 
     public List<Message> getHistoryForUser(UUID conversationId, String userId) {
