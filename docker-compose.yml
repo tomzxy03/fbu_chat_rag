@@ -44,15 +44,24 @@ services:
       - "8080:8080"
     command: sh -c "sed -i 's/\r$//' ./mvnw && chmod +x ./mvnw && ./mvnw spring-boot:run"
     depends_on:
+      minio:
+        condition: service_healthy
       fbuai:
         condition: service_healthy
     environment:
       - SPRING_FLYWAY_REPAIR_ON_MIGRATE=true
       - SPRING_FLYWAY_BASELINE_ON_MIGRATE=true
+
       # Spring kết nối thẳng vào host postgres
       - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:${POSTGRES_PORT:-5432}/${POSTGRES_DB}?sslmode=disable
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+
+      # MinIO Config
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+
       - AI_SERVICE_URL=http://fbuai:8001
       - GROQ_API_KEY=${GROQ_API_KEY}
     extra_hosts:
@@ -72,5 +81,20 @@ services:
       - api
     restart: on-failure
 
+  # ─── MinIO (S3 Storage) ──────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: fbu_minio
+    ports:
+      - "9000:9000"       # Port dành cho API kết nối từ Spring Boot
+      - "9001:9001"       # Port dành cho giao diện Web Console
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+
 volumes:
   ai_model_cache: # HuggingFace model cache persistent
+  minio_data:
