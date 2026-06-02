@@ -40,6 +40,12 @@ public class DocumentChunk {
 
     private Integer year;
 
+    @Column(length = 500)
+    private String title;
+
+    @Column(length = 500)
+    private String section;
+
     @Column(name = "parent_id")
     private UUID parentId;
 }

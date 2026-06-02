@@ -18,6 +18,36 @@ class BaseProcessor(ABC):
         ...
 
     @staticmethod
+    def _strip_yaml_front_matter(text: str) -> str:
+        """Remove YAML front matter so metadata never enters retrieval chunks."""
+        text = text.lstrip("\ufeff")
+        fenced = re.sub(r"^\s*---\s*\n.*?\n---\s*\n?", "", text, count=1, flags=re.DOTALL)
+        if fenced != text:
+            return fenced
+
+        # Defensive fallback for old/generated files where the --- fences were dropped.
+        lines = text.splitlines()
+        frontmatter_keys = {"source", "year", "type", "title", "issued_by"}
+        idx = 0
+        seen = False
+        while idx < len(lines):
+            stripped = lines[idx].strip()
+            if not stripped:
+                idx += 1
+                continue
+            if stripped.startswith("#"):
+                break
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_-]*\s*:", stripped):
+                key = stripped.split(":", 1)[0].strip()
+                if key in frontmatter_keys:
+                    seen = True
+                    idx += 1
+                    continue
+            return text
+
+        return "\n".join(lines[idx:]).lstrip() if seen else text
+
+    @staticmethod
     def _clean_ocr_noise(text: str) -> str:
         """
         Làm sạch noise phổ biến từ OCR văn bản hành chính tiếng Việt.
@@ -62,7 +92,7 @@ class BaseProcessor(ABC):
             return []
 
         # Clean OCR noise trước khi chunk
-        cleaned_text = self._clean_ocr_noise(raw_text)
+        cleaned_text = self._clean_ocr_noise(self._strip_yaml_front_matter(raw_text))
 
         splitter = RecursiveCharacterTextSplitter(
             # 1200 ký tự — đủ để giữ nguyên 1 điều khoản hoàn chỉnh

@@ -69,6 +69,17 @@ public class SingleDocumentIngestorService {
             throw new RuntimeException("AI Service không trả về chunk nào");
         }
 
+        if (isMarkdown) {
+            candidates.stream()
+                    .map(ChunkCandidate::getSourceFile)
+                    .filter(sourceFile -> sourceFile != null && !sourceFile.equals(filename))
+                    .distinct()
+                    .forEach(sourceFile -> {
+                        parentChunkRepository.deleteBySourceFile(sourceFile);
+                        chunkRepository.deleteBySourceFile(sourceFile);
+                    });
+        }
+
         log.info("Đã extract {} chunks từ Python.", candidates.size());
 
         List<DocumentChunk> entitiesToSave;
@@ -161,6 +172,8 @@ public class SingleDocumentIngestorService {
                 chunk.setEmbedding(toFloatArray(embeddings.get(k)));
                 chunk.setDocType(cand.getDocType());
                 chunk.setYear(cand.getYear());
+                chunk.setTitle(cand.getTitle());
+                chunk.setSection(heading);
                 chunk.setParentId(headingToParentId.get(heading));
                 entities.add(chunk);
             }

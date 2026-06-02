@@ -19,9 +19,9 @@ REGISTRY: list[type[BaseProcessor]] = [
     PdfProcessor,
     DocxProcessor,
     ImageProcessor,
+    MarkdownProcessor,
     TextProcessor,
     JsonProcessor,
-    MarkdownProcessor,
 ]
 
 # Tập hợp tất cả extensions được hỗ trợ

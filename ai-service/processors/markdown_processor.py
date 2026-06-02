@@ -79,18 +79,6 @@ class MarkdownProcessor(BaseProcessor):
                 if len(child_text.strip()) < _MIN_CHILD_CHARS:
                     continue
 
-        for parent_heading, parent_content in parents:
-            children = self._split_children(parent_content, parent_heading, meta)
-
-            for child_text in children:
-                # Prepend context
-                context_prefix = f"[Tài liệu: {meta['title']}] [{parent_heading}]\n"
-                full_content = context_prefix + child_text
-
-                # Filter quá ngắn (tính theo text gốc, không tính prefix)
-                if len(child_text.strip()) < _MIN_CHILD_CHARS:
-                    continue
-
                 results.append({
                     "content": full_content,
                     "chunkIndex": chunk_idx,   # Java expects camelCase for this
@@ -152,7 +140,7 @@ class MarkdownProcessor(BaseProcessor):
     @staticmethod
     def _strip_front_matter(raw: str) -> str:
         """Loại bỏ YAML front matter khỏi nội dung."""
-        return re.sub(r"^---\s*\n.*?\n---\s*\n?", "", raw, count=1, flags=re.DOTALL | re.MULTILINE)
+        return BaseProcessor._strip_yaml_front_matter(raw)
 
     # ── split parents (## heading) ────────────────────────────────────
 
