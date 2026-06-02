@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +18,7 @@ public interface ParentChunkRepository extends JpaRepository<ParentChunk, UUID> 
      * Cascade ON DELETE sẽ tự xóa child document_chunks.parent_id liên quan.
      */
     @Modifying
+    @Transactional
     @Query("DELETE FROM ParentChunk p WHERE p.sourceFile = :sourceFile")
     void deleteBySourceFile(String sourceFile);
 
