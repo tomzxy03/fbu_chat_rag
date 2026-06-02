@@ -15,3 +15,11 @@ export async function registerAndLogin(credentials) {
   await authRepository.register(credentials);
   return login(credentials);
 }
+
+export async function logout() {
+  try {
+    await authRepository.logout();
+  } catch (err) {
+    // Ignore error on logout
+  }
+}

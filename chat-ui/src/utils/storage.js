@@ -1,5 +1,5 @@
 export function getStoredToken() {
-  return localStorage.getItem('token');
+  return localStorage.getItem('accessToken');
 }
 
 export function getStoredUser() {
@@ -10,12 +10,12 @@ export function getStoredUser() {
   }
 }
 
-export function setStoredSession(token, user) {
-  localStorage.setItem('token', token);
+export function setStoredSession(accessToken, user) {
+  localStorage.setItem('accessToken', accessToken);
   localStorage.setItem('user', JSON.stringify(user));
 }
 
 export function clearStoredSession() {
-  localStorage.removeItem('token');
+  localStorage.removeItem('accessToken');
   localStorage.removeItem('user');
 }

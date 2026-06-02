@@ -14,21 +14,32 @@ import java.util.Date;
 public class JwtUtil {
 
     private final SecretKey key;
-    private final long expirationMs;
+    private final long accessExpirationMs;
+    private final long refreshExpirationMs;
 
     public JwtUtil(
             @Value("${app.jwt.secret}") String secret,
-            @Value("${app.jwt.expiration-ms:86400000}") long expirationMs) {
+            @Value("${app.jwt.access-expiration-ms:604800000}") long accessExpirationMs,
+            @Value("${app.jwt.refresh-expiration-ms:2592000000}") long refreshExpirationMs) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.expirationMs = expirationMs;
+        this.accessExpirationMs = accessExpirationMs;
+        this.refreshExpirationMs = refreshExpirationMs;
     }
 
-    public String generateToken(UserDetails user) {
+    public String generateAccessToken(UserDetails user) {
+        return generateToken(user, accessExpirationMs);
+    }
+
+    public String generateRefreshToken(UserDetails user) {
+        return generateToken(user, refreshExpirationMs);
+    }
+
+    private String generateToken(UserDetails user, long expiration) {
         return Jwts.builder()
                 .subject(user.getUsername())
                 .claim("role", user.getAuthorities().iterator().next().getAuthority())
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expirationMs))
+                .expiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(key)
                 .compact();
     }

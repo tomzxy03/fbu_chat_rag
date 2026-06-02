@@ -24,7 +24,12 @@ export function useAuth() {
     return session;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await logoutService();
+    } catch (err) {
+      // Ignore
+    }
     clearStoredSession();
     setToken(null);
     setUser(null);
