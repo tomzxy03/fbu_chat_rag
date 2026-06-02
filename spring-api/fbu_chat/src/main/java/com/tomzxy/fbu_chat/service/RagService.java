@@ -8,11 +8,13 @@ import com.tomzxy.fbu_chat.dto.ChatHistoryMessage;
 import com.tomzxy.fbu_chat.dto.ChunkResult;
 import com.tomzxy.fbu_chat.dto.EmbeddingRequest;
 import com.tomzxy.fbu_chat.dto.EmbeddingResponse;
+import com.tomzxy.fbu_chat.dto.ImageResult;
 import com.tomzxy.fbu_chat.entity.Conversation;
 import com.tomzxy.fbu_chat.entity.Message;
 import com.tomzxy.fbu_chat.entity.ParentChunk;
 import com.tomzxy.fbu_chat.repository.ConversationRepository;
 import com.tomzxy.fbu_chat.repository.DocumentChunkRepository;
+import com.tomzxy.fbu_chat.repository.DocumentImageRepository;
 import com.tomzxy.fbu_chat.repository.MessageRepository;
 import com.tomzxy.fbu_chat.repository.ParentChunkRepository;
 import com.tomzxy.fbu_chat.util.TsQueryBuilder;
@@ -37,8 +39,10 @@ import java.util.stream.Collectors;
 public class RagService {
 
     private static final double SIMILARITY_THRESHOLD = 0.65;
+    private static final double IMAGE_SIMILARITY_THRESHOLD = 0.70;
 
     private static final int DEFAULT_TOP_K = 8;
+    private static final int IMAGE_TOP_K = 3;
 
     private static final int HISTORY_WINDOW = 4;
     private static final int MAX_HISTORY_CONTENT_LENGTH = 4000;
@@ -49,6 +53,7 @@ public class RagService {
     private final ConversationRepository conversationRepo;
     private final MessageRepository messageRepo;
     private final DocumentChunkRepository docRepo;
+    private final DocumentImageRepository imageRepo;
     private final ParentChunkRepository parentChunkRepo;
     private final ObjectMapper objectMapper;
     private final RestTemplate groqRestTemplate = new RestTemplate();
@@ -62,6 +67,7 @@ public class RagService {
             ConversationRepository conversationRepo,
             MessageRepository messageRepo,
             DocumentChunkRepository docRepo,
+            DocumentImageRepository imageRepo,
             ParentChunkRepository parentChunkRepo,
             ObjectMapper objectMapper) {
         this.aiRestTemplate = aiRestTemplate;
@@ -69,6 +75,7 @@ public class RagService {
         this.conversationRepo = conversationRepo;
         this.messageRepo = messageRepo;
         this.docRepo = docRepo;
+        this.imageRepo = imageRepo;
         this.parentChunkRepo = parentChunkRepo;
         this.objectMapper = objectMapper;
     }
@@ -111,6 +118,7 @@ public class RagService {
 
         List<Float> queryVector = embResponse.getBody().getEmbeddings().get(0);
         String vectorStr = "[" + queryVector.stream().map(String::valueOf).collect(Collectors.joining(",")) + "]";
+        List<ChatResponse.ImageInfo> images = searchImages(vectorStr);
 
         int topK = request.getTopK() != null ? request.getTopK() : DEFAULT_TOP_K;
         int candidateK = topK * 3;
@@ -162,6 +170,10 @@ public class RagService {
         }
 
         if (topContexts.isEmpty()) {
+            if (!images.isEmpty()) {
+                log.info("No document chunks found, but {} images matched. Returning image-only response.", images.size());
+                return buildImageOnlyChatResponse(request, conversation, images);
+            }
             log.info("No reliable document chunks found. Triggering no-data fallback response.");
             return buildFallbackChatResponse(request, conversation);
         }
@@ -261,6 +273,7 @@ public class RagService {
         if (noDataAnswer) {
             answer = stripNoDataMarker(answer);
             log.info("LLM reported insufficient context. Clearing sources from response.");
+            images = List.of();
         }
 
         List<Map<String, Object>> sources = noDataAnswer
@@ -313,6 +326,7 @@ public class RagService {
                 .query(request.getQuery())
                 .answer(answer)
                 .sources(sourceInfos)
+                .images(images)
                 .build();
     }
 
@@ -430,6 +444,45 @@ public class RagService {
                 .query(request.getQuery())
                 .answer(answer)
                 .sources(List.of())
+                .images(List.of())
+                .build();
+    }
+
+    private ChatResponse buildImageOnlyChatResponse(
+            ChatRequest request,
+            Conversation conversation,
+            List<ChatResponse.ImageInfo> images) {
+        String answer = "Mình tìm thấy một số hình ảnh minh họa phù hợp với câu hỏi của bạn. "
+                + "Bạn có thể xem các ảnh được đính kèm bên dưới.";
+
+        UUID messageId = null;
+        if (conversation != null) {
+            Message userMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("user")
+                    .content(request.getQuery())
+                    .build();
+            messageRepo.save(userMsg);
+
+            Message assistantMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("assistant")
+                    .content(answer)
+                    .sources("[]")
+                    .build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+
+            conversationRepo.save(conversation);
+        }
+
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId)
+                .query(request.getQuery())
+                .answer(answer)
+                .sources(List.of())
+                .images(images)
                 .build();
     }
 
@@ -465,6 +518,29 @@ public class RagService {
                 .query(request.getQuery())
                 .answer(answer)
                 .sources(List.of())
+                .images(List.of())
+                .build();
+    }
+
+    private List<ChatResponse.ImageInfo> searchImages(String vectorStr) {
+        try {
+            return imageRepo.findSimilarImages(vectorStr, IMAGE_TOP_K, IMAGE_SIMILARITY_THRESHOLD)
+                    .stream()
+                    .map(this::toImageInfo)
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Image search failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private ChatResponse.ImageInfo toImageInfo(ImageResult result) {
+        Double score = result.getScore();
+        return ChatResponse.ImageInfo.builder()
+                .url(result.getUrl())
+                .caption(result.getCaption())
+                .category(result.getCategory())
+                .score(score != null ? score : 0.0)
                 .build();
     }
 

@@ -1,8 +1,10 @@
 package com.tomzxy.fbu_chat.controller;
 
 import com.tomzxy.fbu_chat.dto.DocumentSummaryDto;
+import com.tomzxy.fbu_chat.dto.ImageUploadResponse;
 import com.tomzxy.fbu_chat.dto.IngestResponse;
 import com.tomzxy.fbu_chat.service.DocumentService;
+import com.tomzxy.fbu_chat.service.ImageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +20,7 @@ import java.util.Map;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final ImageService imageService;
 
     /**
      * POST /api/documents/ingest — ADMIN only (enforced by SecurityConfig)
@@ -27,6 +30,19 @@ public class DocumentController {
     public ResponseEntity<IngestResponse> ingest(@RequestParam("file") MultipartFile file) {
         IngestResponse response = documentService.ingestDocument(file);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * POST /api/documents/images — ADMIN only
+     * Upload ảnh minh họa, lưu MinIO, embed caption/tags và lưu vào vector store.
+     */
+    @PostMapping("/images")
+    public ResponseEntity<ImageUploadResponse> uploadImage(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "caption", required = false) String caption,
+            @RequestParam(value = "tags", required = false) String tags,
+            @RequestParam(value = "category", required = false) String category) {
+        return ResponseEntity.ok(imageService.uploadImage(file, caption, tags, category));
     }
 
     /**

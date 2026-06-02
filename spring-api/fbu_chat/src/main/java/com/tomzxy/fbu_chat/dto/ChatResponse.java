@@ -14,6 +14,7 @@ public class ChatResponse {
     private String query;
     private String answer;
     private List<SourceInfo> sources;
+    private List<ImageInfo> images;
 
     @Data
     @Builder
@@ -21,5 +22,14 @@ public class ChatResponse {
         private String file;
         private Integer year;
         private String docType;
+    }
+
+    @Data
+    @Builder
+    public static class ImageInfo {
+        private String url;
+        private String caption;
+        private String category;
+        private double score;
     }
 }
