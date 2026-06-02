@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { FileText } from 'lucide-react';
 import { DocumentTable } from '../components/admin/DocumentTable';
 import { DocumentUploadForm } from '../components/admin/DocumentUploadForm';
+import { ImageUploadForm } from '../components/admin/ImageUploadForm';
 
 export function AdminPage({ documents, isAdmin, onLogin, token }) {
   useEffect(() => {
@@ -13,6 +14,14 @@ export function AdminPage({ documents, isAdmin, onLogin, token }) {
       await documents.uploadDocument(payload);
     } catch (err) {
       documents.setStatus({ type: 'error', text: err.message });
+    }
+  };
+
+  const handleImageUpload = async (payload) => {
+    try {
+      await documents.uploadImage(payload);
+    } catch (err) {
+      documents.setImageStatus({ type: 'error', text: err.message });
     }
   };
 
@@ -62,6 +71,7 @@ export function AdminPage({ documents, isAdmin, onLogin, token }) {
 
       <section className="admin-grid">
         <DocumentUploadForm onUpload={handleUpload} status={documents.status} />
+        <ImageUploadForm onUpload={handleImageUpload} status={documents.imageStatus} />
         <DocumentTable docs={documents.docs} docsLoading={documents.docsLoading} onDelete={handleDelete} />
       </section>
     </main>

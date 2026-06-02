@@ -83,7 +83,8 @@ export function useChat({ token, onUnauthorized }) {
           role: 'assistant',
           content: result.answer,
           messageId: result.messageId,
-          sources: result.sources
+          sources: result.sources,
+          images: result.images
         }
       ]);
       if (token) loadConversations();

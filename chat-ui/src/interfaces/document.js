@@ -13,4 +13,12 @@
  * @property {string} docType
  */
 
+/**
+ * @typedef {Object} ImageUploadPayload
+ * @property {File} file
+ * @property {string=} caption
+ * @property {string=} tags
+ * @property {string=} category
+ */
+
 export {};

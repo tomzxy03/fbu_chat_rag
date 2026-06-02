@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { getDocuments, ingestDocument, removeDocument } from '../services/documentService';
+import { getDocuments, ingestDocument, ingestDocumentImage, removeDocument } from '../services/documentService';
 
 export function useDocuments({ token, onUnauthorized }) {
   const [docs, setDocs] = useState([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [status, setStatus] = useState(null);
+  const [imageStatus, setImageStatus] = useState(null);
 
   const loadDocuments = async () => {
     if (!token) return;
@@ -26,6 +27,12 @@ export function useDocuments({ token, onUnauthorized }) {
     await loadDocuments();
   };
 
+  const uploadImage = async (payload) => {
+    setImageStatus({ type: 'muted', text: 'Đang upload ảnh...' });
+    const message = await ingestDocumentImage(payload, token, onUnauthorized);
+    setImageStatus({ type: 'success', text: message });
+  };
+
   const deleteDocument = async (filename) => {
     await removeDocument(filename, token, onUnauthorized);
     setStatus({ type: 'success', text: `Đã xóa: ${filename}` });
@@ -36,9 +43,12 @@ export function useDocuments({ token, onUnauthorized }) {
     docs,
     docsLoading,
     loadDocuments,
+    imageStatus,
+    setImageStatus,
     setStatus,
     status,
     uploadDocument,
+    uploadImage,
     deleteDocument
   };
 }

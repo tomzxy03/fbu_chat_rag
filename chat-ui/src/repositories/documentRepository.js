@@ -18,6 +18,21 @@ export function uploadDocument(payload, token, onUnauthorized) {
   });
 }
 
+export function uploadDocumentImage(payload, token, onUnauthorized) {
+  const formData = new FormData();
+  formData.append('file', payload.file);
+  formData.append('caption', payload.caption || '');
+  formData.append('tags', payload.tags || '');
+  formData.append('category', payload.category || '');
+
+  return requestJson('/api/documents/images', {
+    method: 'POST',
+    token,
+    onUnauthorized,
+    body: formData
+  });
+}
+
 export function deleteDocument(filename, token, onUnauthorized) {
   return requestJson(`/api/documents/${encodeURIComponent(filename)}`, {
     method: 'DELETE',

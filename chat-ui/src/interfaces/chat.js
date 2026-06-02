@@ -8,6 +8,7 @@
  * @property {string} content
  * @property {number|string=} messageId
  * @property {ChatSource[]=} sources
+ * @property {ChatImage[]=} images
  */
 
 /**
@@ -29,12 +30,21 @@
  */
 
 /**
+ * @typedef {Object} ChatImage
+ * @property {string} url
+ * @property {string=} caption
+ * @property {string=} category
+ * @property {number=} score
+ */
+
+/**
  * @typedef {Object} ChatResponse
  * @property {string=} answer
  * @property {number|string=} conversationId
  * @property {number|string=} messageId
  * @property {string=} query
  * @property {ChatSource[]=} sources
+ * @property {ChatImage[]=} images
  */
 
 export {};

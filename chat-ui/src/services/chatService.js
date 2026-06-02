@@ -22,7 +22,8 @@ export async function askQuestion({ query, conversationId, history, token, onUna
     messageId: data.messageId,
     query: data.query,
     answer: data.answer || '',
-    sources: Array.isArray(data.sources) ? data.sources : []
+    sources: Array.isArray(data.sources) ? data.sources : [],
+    images: Array.isArray(data.images) ? data.images : []
   };
 }
 

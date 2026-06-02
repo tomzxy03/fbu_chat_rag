@@ -75,3 +75,16 @@ public class ChatResponse {
         private double score;
     }
 }
+
+Bước 5 — Angular hiển thị:
+typescript// chat.component.html
+<div class="answer-text" [innerHTML]="marked(message.answer)"></div>
+
+<!-- Images gallery nếu có -->
+<div *ngIf="message.images?.length" class="image-gallery">
+  <img *ngFor="let img of message.images"
+       [src]="img.url"
+       [alt]="img.caption"
+       class="result-thumbnail"
+       (click)="openFullscreen(img)" />
+</div>
