@@ -75,6 +75,7 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
                          SELECT id,
                                 ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:queryVector AS vector)) AS rank
                          FROM document_chunks
+                         WHERE embedding <=> CAST(:queryVector AS vector) < :vectorThreshold
                          ORDER BY embedding <=> CAST(:queryVector AS vector)
                          LIMIT :candidateK
                      ),
@@ -112,7 +113,8 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
                      @Param("queryVector") String queryVector,
                      @Param("tsQuery") String tsQuery,
                      @Param("topK") int topK,
-                     @Param("candidateK") int candidateK);
+                     @Param("candidateK") int candidateK,
+                     @Param("vectorThreshold") double vectorThreshold);
 
        /**
         * Tổng hợp danh sách tài liệu đã ingest, group theo source_file.

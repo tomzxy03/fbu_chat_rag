@@ -40,8 +40,13 @@ public class RagService {
 
     private static final double SIMILARITY_THRESHOLD = 0.65;
     private static final double IMAGE_SIMILARITY_THRESHOLD = 0.70;
+    /**
+     * Cosine distance (0=identical, 2=opposite). 0.35 ≈ similarity 0.65. Applied to
+     * hybridSearch vector CTE.
+     */
+    private static final double HYBRID_VECTOR_THRESHOLD = 0.35;
 
-    private static final int DEFAULT_TOP_K = 8;
+    private static final int DEFAULT_TOP_K = 5;
     private static final int IMAGE_TOP_K = 3;
 
     private static final int HISTORY_WINDOW = 4;
@@ -133,9 +138,19 @@ public class RagService {
 
         List<ChunkResult> topContexts = List.of();
 
+        // Auto-fill docType from query intent if not explicitly provided by client
+        if (request.getDocType() == null) {
+            String inferredDocType = extractQuerySlots(request.getQuery());
+            if (inferredDocType != null) {
+                request.setDocType(inferredDocType);
+                log.info("Slot-filling inferred docType='{}' from query", inferredDocType);
+            }
+        }
+
         if (andQuery != null) {
             try {
-                List<ChunkResult> andResults = docRepo.hybridSearch(vectorStr, andQuery, topK, candidateK);
+                List<ChunkResult> andResults = docRepo.hybridSearch(vectorStr, andQuery, topK, candidateK,
+                        HYBRID_VECTOR_THRESHOLD);
                 topContexts = filterByMetadata(andResults, request);
                 log.info("Pass 1 (AND) after metadata filter: {} results", topContexts.size());
             } catch (Exception e) {
@@ -146,7 +161,8 @@ public class RagService {
         if (topContexts.size() < 2 && orQuery != null) {
             log.info("Pass 1 insufficient, trying OR fallback...");
             try {
-                List<ChunkResult> orResults = docRepo.hybridSearch(vectorStr, orQuery, topK, candidateK);
+                List<ChunkResult> orResults = docRepo.hybridSearch(vectorStr, orQuery, topK, candidateK,
+                        HYBRID_VECTOR_THRESHOLD);
                 List<ChunkResult> filteredOr = filterByMetadata(orResults, request);
                 log.info("Pass 2 (OR) after metadata filter: {} results", filteredOr.size());
 
@@ -171,7 +187,8 @@ public class RagService {
 
         if (topContexts.isEmpty()) {
             if (!images.isEmpty()) {
-                log.info("No document chunks found, but {} images matched. Returning image-only response.", images.size());
+                log.info("No document chunks found, but {} images matched. Returning image-only response.",
+                        images.size());
                 return buildImageOnlyChatResponse(request, conversation, images);
             }
             log.info("No reliable document chunks found. Triggering no-data fallback response.");
@@ -196,29 +213,37 @@ public class RagService {
         }
         log.info("================================");
 
-        String systemPrompt = 
-            "# VAI TRÒ VÀ ĐỊNH DANH\n" +
-            "Bạn là Trợ lý AI chuyên nghiệp và thân thiện của Trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). " +
-            "Nhiệm vụ của bạn là hỗ trợ sinh viên và giảng viên tra cứu các quy chế, quy định nội bộ dựa trên dữ liệu [CONTEXT] được cung cấp.\n\n" +
-    
-            "# NGUYÊN TẮC CỐT LÕI (TUÂN THỦ TUYỆT ĐỐI)\n" +
-            "1. CHỈ câu trả lời dựa trên thông tin có trong [CONTEXT]. Tuyệt đối không tự suy diễn, bịa đặt hoặc dùng kiến thức chung trên Internet để đoán quy định của FBU.\n" +
-            "2. Trả lời bằng tiếng Việt lịch sự, truyền cảm hứng, ngắn gọn nhưng đầy đủ ý. Sử dụng các dấu gạch đầu dòng rõ ràng để phân tách các quy trình, điều khoản.\n" +
-            "3. Quản lý lịch sử hội thoại: Đọc kỹ các câu trả lời trước đó để KHÔNG lặp lại thông tin cũ. Chỉ tập trung bổ sung thông tin mới đáp ứng đúng câu hỏi tiếp diễn.\n\n" +
-    
-            "# HƯỚNG DẪN XỬ LÝ KHI THIẾU THÔNG TIN (KỊCH BẢN FALLBACK)\n" +
-            "Khi [CONTEXT] trống rỗng, thông tin quá sơ sài hoặc hoàn toàn lệch khỏi chủ đề người dùng đang hỏi, bạn TUYỆT ĐỐI không từ chối một cách cụt ngủn. Hãy trả lời theo văn phong ấm áp và hướng dẫn sau:\n" +
-            "- Ghi nhận câu hỏi và khéo léo thông báo rằng hệ thống dữ liệu nội bộ hiện tại chưa cập nhật thông tin chính thức về chủ đề này.\n" +
-            "- Chủ động và lịch sự mời gọi người dùng đóng góp dữ liệu: Nếu họ có tài liệu hoặc thông tin chính xác, họ có thể gửi phản hồi trực tiếp qua 'Tab Góp ý' trên hệ thống, hoặc liên hệ qua kênh Facebook/Gmail của tác giả phát triển dự án để đội ngũ kỹ thuật cập nhật kịp thời.\n" +
-            "- *Ví dụ văn phong:* 'Hiện tại hệ thống dữ liệu của mình chưa có thông tin chính thức về vấn đề này mất rồi... Nếu bạn biết hoặc đang giữ tài liệu liên quan, bạn có thể gửi phản hồi qua...'\n\n" +
-    
-            "# QUY TẮC CẤM ĐỊNH DẠNG NGUỒN\n" +
-            "- Tuyệt đối KHÔNG được tự viết chữ 'Nguồn:' hoặc tự tổng hợp danh sách tên file ở cuối câu trả lời dưới mọi hình thức (Hệ thống đã có bộ lọc tự động xử lý phần này).\n" +
-            "- Bạn chỉ được phép lồng ghép tên văn bản một cách tự nhiên vào câu văn nếu cần làm rõ tính pháp lý (Ví dụ: 'Dựa trên Quyết định số 116, quy trình xác nhận sinh viên gồm...').";
+        String systemPrompt = "# VAI TRÒ VÀ ĐỊNH DANH\n" +
+                "Bạn là Trợ lý AI chuyên nghiệp và thân thiện của Trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). " +
+                "Nhiệm vụ của bạn là hỗ trợ sinh viên và giảng viên tra cứu các quy chế, quy định nội bộ dựa trên dữ liệu [CONTEXT] được cung cấp.\n\n"
+                +
+
+                "# NGUYÊN TẮC CỐT LÕI (TUÂN THỦ TUYỆT ĐỐI)\n" +
+                "1. CHỈ câu trả lời dựa trên thông tin có trong [CONTEXT]. Tuyệt đối không tự suy diễn, bịa đặt hoặc dùng kiến thức chung trên Internet để đoán quy định của FBU.\n"
+                +
+                "2. Trả lời bằng tiếng Việt lịch sự, truyền cảm hứng, ngắn gọn nhưng đầy đủ ý. Sử dụng các dấu gạch đầu dòng rõ ràng để phân tách các quy trình, điều khoản.\n"
+                +
+                "3. Quản lý lịch sử hội thoại: Đọc kỹ các câu trả lời trước đó để KHÔNG lặp lại thông tin cũ. Chỉ tập trung bổ sung thông tin mới đáp ứng đúng câu hỏi tiếp diễn.\n\n"
+                +
+
+                "# HƯỚNG DẪN XỬ LÝ KHI THIẾU THÔNG TIN (KỊCH BẢN FALLBACK)\n" +
+                "Khi [CONTEXT] trống rỗng, thông tin quá sơ sài hoặc hoàn toàn lệch khỏi chủ đề người dùng đang hỏi, bạn TUYỆT ĐỐI không từ chối một cách cụt ngủn. Hãy trả lời theo văn phong ấm áp và hướng dẫn sau:\n"
+                +
+                "- Ghi nhận câu hỏi và khéo léo thông báo rằng hệ thống dữ liệu nội bộ hiện tại chưa cập nhật thông tin chính thức về chủ đề này.\n"
+                +
+                "- Chủ động và lịch sự mời gọi người dùng đóng góp dữ liệu: Nếu họ có tài liệu hoặc thông tin chính xác, họ có thể gửi phản hồi trực tiếp qua 'Tab Góp ý' trên hệ thống, hoặc liên hệ qua kênh Facebook/Gmail của tác giả phát triển dự án để đội ngũ kỹ thuật cập nhật kịp thời.\n"
+                +
+                "- *Ví dụ văn phong:* 'Hiện tại hệ thống dữ liệu của mình chưa có thông tin chính thức về vấn đề này mất rồi... Nếu bạn biết hoặc đang giữ tài liệu liên quan, bạn có thể gửi phản hồi qua...'\n\n"
+                +
+
+                "# QUY TẮC CẤM ĐỊNH DẠNG NGUỒN\n" +
+                "- Tuyệt đối KHÔNG được tự viết chữ 'Nguồn:' hoặc tự tổng hợp danh sách tên file ở cuối câu trả lời dưới mọi hình thức (Hệ thống đã có bộ lọc tự động xử lý phần này).\n"
+                +
+                "- Bạn chỉ được phép lồng ghép tên văn bản một cách tự nhiên vào câu văn nếu cần làm rõ tính pháp lý (Ví dụ: 'Dựa trên Quyết định số 116, quy trình xác nhận sinh viên gồm...').";
 
         String userPrompt = "CONTEXT TỪ TÀI LIỆU FBU:\n" + contextText + "\n\n" +
-            "CÂU HỎI HIỆN TẠI: " + request.getQuery() + "\n\n" +
-            "Trả lời (Tuân thủ tuyệt đối quy tắc định dạng nguồn):";
+                "CÂU HỎI HIỆN TẠI: " + request.getQuery() + "\n\n" +
+                "Trả lời (Tuân thủ tuyệt đối quy tắc định dạng nguồn):";
 
         log.info("Calling Groq LLM Generator...");
         Map<String, Object> groqMsg1 = new HashMap<>();
@@ -314,8 +339,7 @@ public class RagService {
                                 .year(s.get("year") instanceof Integer ? (Integer) s.get("year") : null)
                                 .docType((String) s.get("doc_type"))
                                 .build(),
-                        (existing, duplicate) -> existing
-                ))
+                        (existing, duplicate) -> existing))
                 .values()
                 .stream()
                 .toList();
@@ -378,6 +402,40 @@ public class RagService {
 
         log.warn("Unexpected intent classifier response '{}'. Falling back to RAG.", decision);
         return true;
+    }
+
+    /**
+     * Trích xuất các tham số metadata (slot-filling) từ câu hỏi người dùng.
+     * Hiện tại tập trung trích xuất docType để thu hẹp phạm vi tìm kiếm.
+     */
+    private String extractQuerySlots(String query) {
+        String slotPrompt = "Phân loại ý định tìm kiếm của người dùng vào các nhóm tài liệu của FBU.\n"
+                + "Nhãn:\n"
+                + "- introduction: nếu hỏi về giới thiệu trường, khoa, chuyên ngành, lịch sử, cơ sở vật chất, tổ chức bộ máy.\n"
+                + "- regulation: nếu hỏi về quy chế, quy định, hướng dẫn học tập, học phí, học bổng, thi cử, tốt nghiệp.\n"
+                + "- none: nếu câu hỏi chung chung hoặc không thuộc các nhóm trên.\n"
+                + "Dữ liệu trả về CHỈ GỒM NHÃN (introduction/regulation/none). Không giải thích.";
+
+        List<Map<String, Object>> messages = new ArrayList<>();
+        messages.add(Map.of("role", "system", "content", slotPrompt));
+        messages.add(Map.of("role", "user", "content", query));
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("model", GROQ_MODEL);
+        payload.put("messages", messages);
+        payload.put("temperature", 0);
+        payload.put("max_tokens", 16);
+
+        try {
+            String label = callGroq(payload).trim().toLowerCase(Locale.ROOT);
+            if (label.contains("introduction"))
+                return "introduction";
+            if (label.contains("regulation"))
+                return "regulation";
+        } catch (Exception e) {
+            log.warn("Slot filling failed: {}", e.getMessage());
+        }
+        return null;
     }
 
     private ChatResponse buildConversationalChatResponse(ChatRequest request, Conversation conversation) {

@@ -106,7 +106,7 @@ def main():
             response = requests.post(
                 ingest_url,
                 headers=headers,
-                files={"file": (filename, file_bytes, mime_type)},
+                files={"files": (filename, file_bytes, mime_type)},
                 timeout=600,  # 10 phút — đủ cho OCR file scan nhiều trang
             )
         except requests.exceptions.ConnectionError as e:
