@@ -37,6 +37,8 @@ services:
   api:
     image: eclipse-temurin:17-jdk-alpine
     container_name: spring_api
+    env_file:
+      - .env
     working_dir: /app
     volumes:
       - ./spring-api/fbu_chat:/app
@@ -85,6 +87,9 @@ services:
   minio:
     image: minio/minio:latest
     container_name: fbu_minio
+    env_file:
+      - .env
+     # Đảm bảo .env chứa MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, MINIO_ENDPOINT
     ports:
       - "9000:9000"       # Port dành cho API kết nối từ Spring Boot
       - "9001:9001"       # Port dành cho giao diện Web Console
@@ -94,6 +99,11 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   ai_model_cache: # HuggingFace model cache persistent
