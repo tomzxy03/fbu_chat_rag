@@ -79,15 +79,28 @@ class MarkdownProcessor(BaseProcessor):
                 if len(child_text.strip()) < _MIN_CHILD_CHARS:
                     continue
 
+        for parent_heading, parent_content in parents:
+            children = self._split_children(parent_content, parent_heading, meta)
+
+            for child_text in children:
+                # Prepend context
+                context_prefix = f"[Tài liệu: {meta['title']}] [{parent_heading}]\n"
+                full_content = context_prefix + child_text
+
+                # Filter quá ngắn (tính theo text gốc, không tính prefix)
+                if len(child_text.strip()) < _MIN_CHILD_CHARS:
+                    continue
+
                 results.append({
                     "content": full_content,
-                    "chunkIndex": chunk_idx,
-                    "parentHeading": parent_heading,
-                    "parentContent": parent_content.strip(),
+                    "chunkIndex": chunk_idx,   # Java expects camelCase for this
+                    "pageNumber": 1,
+                    "parent_heading": parent_heading,
+                    "parent_content": parent_content.strip(),
                     "title": meta["title"],
                     "year": meta["year"],
-                    "docType": meta["type"],
-                    "sourceFile": meta["source"],
+                    "doc_type": meta["type"],
+                    "source_file": meta["source"],
                 })
                 chunk_idx += 1
 
@@ -106,29 +119,40 @@ class MarkdownProcessor(BaseProcessor):
             "issued_by": "",
         }
 
-        match = re.match(r"^---\s*\n(.*?)\n---", raw, re.DOTALL)
+        # Dùng re.search thay vì re.match để bỏ qua BOM hoặc whitespace ở đầu file
+        match = re.search(r"^---\s*\n(.*?)\n---", raw, re.DOTALL | re.MULTILINE)
         if not match:
             return defaults
 
         try:
-            parsed = yaml.safe_load(match.group(1))
+            content = match.group(1)
+            parsed = yaml.safe_load(content)
             if not isinstance(parsed, dict):
                 return defaults
 
-            return {
+            # Normalize values
+            res = {
                 "source": parsed.get("source", defaults["source"]),
-                "year": int(parsed.get("year", defaults["year"])),
+                "year": parsed.get("year", defaults["year"]),
                 "type": parsed.get("type", defaults["type"]),
                 "title": parsed.get("title", defaults["title"]),
                 "issued_by": parsed.get("issued_by", defaults["issued_by"]),
             }
-        except Exception:
+            # Cố gắng ép kiểu year về int nếu có thể
+            try:
+                res["year"] = int(res["year"])
+            except (ValueError, TypeError):
+                res["year"] = defaults["year"]
+            
+            return res
+        except Exception as e:
+            # log or print error here if needed
             return defaults
 
     @staticmethod
     def _strip_front_matter(raw: str) -> str:
         """Loại bỏ YAML front matter khỏi nội dung."""
-        return re.sub(r"^---\s*\n.*?\n---\s*\n?", "", raw, count=1, flags=re.DOTALL)
+        return re.sub(r"^---\s*\n.*?\n---\s*\n?", "", raw, count=1, flags=re.DOTALL | re.MULTILINE)
 
     # ── split parents (## heading) ────────────────────────────────────
 
