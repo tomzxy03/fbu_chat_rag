@@ -72,12 +72,11 @@ services:
 
   # ─── Chat UI (Nginx) ──────────────────────────────────────────
   chatui:
-    image: nginx:alpine
+    build: ./chat-ui  
     container_name: fbu_chatui
     ports:
       - "80:80"
     volumes:
-      - ./chat-ui:/usr/share/nginx/html:ro
       - ./chat-ui/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - api
