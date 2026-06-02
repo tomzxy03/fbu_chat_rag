@@ -6,8 +6,12 @@ export async function getDocuments(token, onUnauthorized) {
 }
 
 export async function ingestDocument(payload, token, onUnauthorized) {
-  const data = await documentRepository.uploadDocument(payload, token, onUnauthorized);
-  return data.message || 'Upload thành công';
+  const responses = await documentRepository.uploadDocument(payload, token, onUnauthorized);
+  if (Array.isArray(responses)) {
+    const successCount = responses.filter(r => !r.message.startsWith('Thất bại')).length;
+    return `Đã hoàn tất nạp ${responses.length} file (${successCount} thành công)`;
+  }
+  return responses.message || 'Upload thành công';
 }
 
 export async function ingestDocumentImage(payload, token, onUnauthorized) {

@@ -3,19 +3,17 @@ import { Upload } from 'lucide-react';
 import { DOC_TYPES } from '../../constants/appConstants';
 
 export function DocumentUploadForm({ onUpload, status }) {
-  const [file, setFile] = useState(null);
-  const [year, setYear] = useState('2026');
-  const [docType, setDocType] = useState('quy_che');
+  const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
 
   const submitUpload = async (event) => {
     event.preventDefault();
-    if (!file) return;
+    if (files.length === 0) return;
     setUploading(true);
 
     try {
-      await onUpload({ file, year, docType });
-      setFile(null);
+      await onUpload({ files });
+      setFiles([]);
       event.target.reset();
     } finally {
       setUploading(false);
@@ -28,39 +26,33 @@ export function DocumentUploadForm({ onUpload, status }) {
         <Upload size={20} />
         <div>
           <h3>Upload tài liệu</h3>
-          <p>PDF, Word, text, markdown, CSV, JSON hoặc hình ảnh</p>
+          <p>Chọn một hoặc nhiều file Markdown</p>
         </div>
       </div>
 
       <label>
-        File
+        Chọn files (.md)
         <input
-          accept=".pdf,.docx,.doc,.txt,.json,.md,.csv,.png,.jpg,.jpeg"
-          onChange={(event) => setFile(event.target.files?.[0] || null)}
+          accept=".md"
+          multiple
+          onChange={(event) => setFiles(Array.from(event.target.files || []))}
           required
           type="file"
         />
       </label>
 
-      <div className="field-row">
-        <label>
-          Năm
-          <input min="2020" max="2030" onChange={(event) => setYear(event.target.value)} type="number" value={year} />
-        </label>
-        <label>
-          Loại tài liệu
-          <select onChange={(event) => setDocType(event.target.value)} value={docType}>
-            {DOC_TYPES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      {files.length > 0 && (
+        <div className="file-preview">
+          <p>Đã chọn {files.length} file:</p>
+          <ul>
+            {files.slice(0, 5).map((f, i) => <li key={i}>{f.name}</li>)}
+            {files.length > 5 && <li>... và {files.length - 5} file khác</li>}
+          </ul>
+        </div>
+      )}
 
-      <button className="primary-button" disabled={uploading || !file} type="submit">
-        {uploading ? 'Đang upload...' : 'Upload'}
+      <button className="primary-button" disabled={uploading || files.length === 0} type="submit">
+        {uploading ? 'Đang upload...' : `Upload ${files.length} files`}
       </button>
 
       {status?.text && <p className={`status-text ${status.type}`}>{status.text}</p>}

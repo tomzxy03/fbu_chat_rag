@@ -27,9 +27,9 @@ public class DocumentController {
      * Upload file để chunk, embed và lưu vào vector store.
      */
     @PostMapping("/ingest")
-    public ResponseEntity<IngestResponse> ingest(@RequestParam("file") MultipartFile file) {
-        IngestResponse response = documentService.ingestDocument(file);
-        return ResponseEntity.ok(response);
+    public ResponseEntity<List<IngestResponse>> ingest(@RequestParam("files") MultipartFile[] files) {
+        List<IngestResponse> responses = documentService.ingestDocuments(files);
+        return ResponseEntity.ok(responses);
     }
 
     /**

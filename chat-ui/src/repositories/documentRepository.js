@@ -6,9 +6,14 @@ export function fetchDocuments(token, onUnauthorized) {
 
 export function uploadDocument(payload, token, onUnauthorized) {
   const formData = new FormData();
-  formData.append('file', payload.file);
-  formData.append('year', payload.year);
-  formData.append('docType', payload.docType);
+
+  if (Array.isArray(payload.files)) {
+    payload.files.forEach(file => {
+      formData.append('files', file);
+    });
+  } else if (payload.file) {
+    formData.append('files', payload.file);
+  }
 
   return requestJson('/api/documents/ingest', {
     method: 'POST',

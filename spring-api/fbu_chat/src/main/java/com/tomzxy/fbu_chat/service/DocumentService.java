@@ -22,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -46,8 +47,33 @@ public class DocumentService {
         this.parentChunkRepository = parentChunkRepository;
     }
 
+    public List<IngestResponse> ingestDocuments(MultipartFile[] files) {
+        if (files == null || files.length == 0) {
+            throw new IllegalArgumentException("Danh sách file không được trống");
+        }
+
+        List<CompletableFuture<IngestResponse>> futures = Arrays.stream(files)
+                .map(file -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return ingestSingleFile(file);
+                    } catch (Exception e) {
+                        log.error("Lỗi khi nạp file {}: {}", file.getOriginalFilename(), e.getMessage());
+                        return IngestResponse.builder()
+                                .filename(file.getOriginalFilename())
+                                .message("Thất bại: " + e.getMessage())
+                                .chunks(0)
+                                .build();
+                    }
+                }))
+                .collect(Collectors.toList());
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
+    }
+
     @Transactional
-    public IngestResponse ingestDocument(MultipartFile file) {
+    public IngestResponse ingestSingleFile(MultipartFile file) {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("File không được để trống");
         }
@@ -76,10 +102,10 @@ public class DocumentService {
         }
 
         chunkRepository.saveAll(entitiesToSave);
-        log.info("Lưu thành công {} chunks (với vector 384) vào database.", entitiesToSave.size());
+        log.info("Lưu thành công {} chunks vào database cho file: {}", entitiesToSave.size(), filename);
 
         return IngestResponse.builder()
-                .message("Nạp thành công " + entitiesToSave.size() + " đoạn từ " + filename)
+                .message("Nạp thành công " + entitiesToSave.size() + " đoạn")
                 .filename(filename)
                 .chunks(entitiesToSave.size())
                 .build();
