@@ -34,7 +34,7 @@ export async function request(path, options = {}) {
   // Note: Luôn dùng credentials include để gửi/nhận Cookie (Refresh Token)
   fetchOptions.credentials = 'include';
 
-  const activeToken = token || localStorage.getItem('accessToken');
+  const activeToken = localStorage.getItem('accessToken') || token;
 
   if (activeToken) {
     requestHeaders.Authorization = `Bearer ${activeToken}`;
