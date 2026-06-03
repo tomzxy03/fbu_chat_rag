@@ -42,9 +42,9 @@ services:
     working_dir: /app
     volumes:
       - ./spring-api/fbu_chat:/app
-      - /home/debian-server/coccoc-dist:/app/libs:ro
-      - /home/debian-server/coccoc-dist/dicts/tokenizer:/usr/share/tokenizer/dicts:ro
-      - /home/debian-server/coccoc-dist/dicts/tokenizer:/usr/local/share/tokenizer/dicts:ro
+      - /home/debian-server/coccoc-runtime:/app/libs:ro
+      - /home/debian-server/coccoc-install/share/tokenizer/dicts:/usr/share/tokenizer/dicts:ro
+      - /home/debian-server/coccoc-install/share/tokenizer/dicts:/usr/local/share/tokenizer/dicts:ro
     ports:
       - "8080:8080"
     command: >

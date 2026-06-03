@@ -419,10 +419,11 @@ public class RagService {
     private String extractQuerySlots(String query) {
         String slotPrompt = "Phân loại ý định tìm kiếm của người dùng vào các nhóm tài liệu của FBU.\n"
                 + "Nhãn:\n"
-                + "- introduction: nếu hỏi về giới thiệu trường, khoa, chuyên ngành, lịch sử, cơ sở vật chất, tổ chức bộ máy.\n"
+                + "- introduction: nếu hỏi về giới thiệu trường, khoa, chuyên ngành, lịch sử, cơ sở vật chất.\n"
+                + "- department: nếu hỏi về bộ môn, khoa/viện trực thuộc, trưởng bộ môn, học phần hoặc môn học do bộ môn quản lý.\n"
                 + "- regulation: nếu hỏi về quy chế, quy định, hướng dẫn học tập, học phí, học bổng, thi cử, tốt nghiệp.\n"
                 + "- none: nếu câu hỏi chung chung hoặc không thuộc các nhóm trên.\n"
-                + "Dữ liệu trả về CHỈ GỒM NHÃN (introduction/regulation/none). Không giải thích.";
+                + "Dữ liệu trả về CHỈ GỒM NHÃN (introduction/department/regulation/none). Không giải thích.";
 
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(Map.of("role", "system", "content", slotPrompt));
@@ -438,6 +439,8 @@ public class RagService {
             String label = callGroq(payload).trim().toLowerCase(Locale.ROOT);
             if (label.contains("introduction"))
                 return "introduction";
+            if (label.contains("department"))
+                return "department";
             if (label.contains("regulation"))
                 return "regulation";
         } catch (Exception e) {
@@ -692,8 +695,9 @@ public class RagService {
                 .collect(Collectors.toList());
 
         if (!results.isEmpty() && filtered.size() < results.size() / 2) {
-            log.warn("Metadata filter dropped {}/{} chunks — Check your DB metadata injection quality!",
+            log.warn("Metadata filter dropped {}/{} chunks. Keeping unfiltered candidates to avoid losing relevant context.",
                     results.size() - filtered.size(), results.size());
+            return results;
         }
 
         return filtered;

@@ -60,11 +60,11 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
        /**
         * Hybrid search v2: Vector + FTS với RRF (Reciprocal Rank Fusion).
         *
-        * Kiến trúc LEFT JOIN:
+        * Kiến trúc FULL OUTER JOIN:
         * - vector_ranked: BẢO HIỂM — luôn trả kết quả dù query bị teencode/viết tắt
-        * - fts_ranked: BONUS — cộng điểm nếu FTS match, dùng immutable_unaccent()
+        * - fts_ranked: kéo vào kết quả các tài liệu khớp từ khóa mạnh, dùng immutable_unaccent()
         * để xử lý query thiếu dấu ("lich nghi le" → match "lịch nghỉ lễ")
-        * - LEFT JOIN: vector results luôn sống, FTS miss = 0 điểm (không bị loại)
+        * - FULL OUTER JOIN: vector-only và FTS-only đều sống, điểm còn lại = 0
         *
         * QUAN TRỌNG: Biểu thức to_tsvector('simple', immutable_unaccent(content))
         * PHẢI khớp 100% với GIN index idx_chunks_fts_unaccent (V6 migration).
@@ -93,10 +93,11 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
                          LIMIT :candidateK
                      ),
                      rrf_scored AS (
-                         SELECT v.id,
-                                (1.0 / (60 + v.rank)) + COALESCE(1.0 / (60 + f.rank), 0.0) AS rrf_score
+                         SELECT COALESCE(v.id, f.id) AS id,
+                                COALESCE(1.0 / (60 + v.rank), 0.0)
+                                  + COALESCE(1.0 / (60 + f.rank), 0.0) AS rrf_score
                          FROM vector_ranked v
-                         LEFT JOIN fts_ranked f ON v.id = f.id
+                         FULL OUTER JOIN fts_ranked f ON v.id = f.id
                      )
                      SELECT dc.content,
                             dc.source_file AS sourceFile,
