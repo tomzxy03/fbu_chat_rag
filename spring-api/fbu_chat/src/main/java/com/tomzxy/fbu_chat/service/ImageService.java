@@ -24,16 +24,19 @@ public class ImageService {
     private final DocumentImageRepository imageRepository;
     private final RestTemplate aiRestTemplate;
     private final String aiBaseUrl;
+    private final VietnameseTokenizerService tokenizerService;
 
     public ImageService(
             StorageService storageService,
             DocumentImageRepository imageRepository,
             RestTemplate aiRestTemplate,
-            @Qualifier("aiServiceBaseUrl") String aiBaseUrl) {
+            @Qualifier("aiServiceBaseUrl") String aiBaseUrl,
+            VietnameseTokenizerService tokenizerService) {
         this.storageService = storageService;
         this.imageRepository = imageRepository;
         this.aiRestTemplate = aiRestTemplate;
         this.aiBaseUrl = aiBaseUrl;
+        this.tokenizerService = tokenizerService;
     }
 
     @Transactional
@@ -85,7 +88,7 @@ public class ImageService {
 
     private List<Float> embedImageMetadata(String text) {
         EmbeddingRequest req = new EmbeddingRequest();
-        req.setTexts(List.of(text));
+        req.setTexts(List.of(tokenizerService.segmentForEmbedding(text)));
         req.setMode("passage");
 
         HttpHeaders headers = new HttpHeaders();

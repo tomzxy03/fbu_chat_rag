@@ -48,7 +48,9 @@ services:
       - "8080:8080"
     command: >
       sh -c "sed -i 's/\r$//' ./mvnw && chmod +x ./mvnw && 
-      ./mvnw spring-boot:run -Dspring-boot.run.arguments='--spring.flyway.baseline-on-migrate=false --spring.flyway.repair-on-migrate=true' -Dspring-boot.run.jvmArguments='-Djava.library.path=/app/libs'"
+      ./mvnw clean spring-boot:run 
+      -Dspring-boot.run.arguments='--spring.flyway.baseline-on-migrate=false --spring.flyway.repair-on-migrate=true' 
+      -Dspring-boot.run.jvmArguments='-Djava.library.path=/app/libs'"
     depends_on:
       minio:
         condition: service_healthy

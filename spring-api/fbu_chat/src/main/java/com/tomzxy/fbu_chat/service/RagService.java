@@ -61,6 +61,8 @@ public class RagService {
     private final DocumentImageRepository imageRepo;
     private final ParentChunkRepository parentChunkRepo;
     private final ObjectMapper objectMapper;
+    private final TsQueryBuilder tsQueryBuilder;
+    private final VietnameseTokenizerService tokenizerService;
     private final RestTemplate groqRestTemplate = new RestTemplate();
 
     @Value("${groq.api.key:}")
@@ -74,7 +76,9 @@ public class RagService {
             DocumentChunkRepository docRepo,
             DocumentImageRepository imageRepo,
             ParentChunkRepository parentChunkRepo,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            TsQueryBuilder tsQueryBuilder,
+            VietnameseTokenizerService tokenizerService) {
         this.aiRestTemplate = aiRestTemplate;
         this.aiBaseUrl = aiBaseUrl;
         this.conversationRepo = conversationRepo;
@@ -83,6 +87,8 @@ public class RagService {
         this.imageRepo = imageRepo;
         this.parentChunkRepo = parentChunkRepo;
         this.objectMapper = objectMapper;
+        this.tsQueryBuilder = tsQueryBuilder;
+        this.tokenizerService = tokenizerService;
     }
 
     @Transactional
@@ -105,9 +111,11 @@ public class RagService {
             return buildConversationalChatResponse(request, conversation);
         }
 
+        String segmentedQuery = tokenizerService.segmentForEmbedding(request.getQuery());
+
         log.info("Encoding query using AI Service...");
         EmbeddingRequest embReq = new EmbeddingRequest();
-        embReq.setTexts(List.of(request.getQuery()));
+        embReq.setTexts(List.of(segmentedQuery));
         embReq.setMode("query");
 
         HttpHeaders headers = new HttpHeaders();
@@ -128,12 +136,12 @@ public class RagService {
         int topK = request.getTopK() != null ? request.getTopK() : DEFAULT_TOP_K;
         int candidateK = topK * 3;
 
-        String[] tsQueries = TsQueryBuilder.buildSmart(request.getQuery());
+        String[] tsQueries = tsQueryBuilder.buildSmart(request.getQuery());
         String andQuery = tsQueries[0];
         String orQuery = tsQueries[1];
 
-        log.info("Searching (topK={}, threshold={}, AND={}, year={}, docType={})",
-                topK, SIMILARITY_THRESHOLD, andQuery,
+        log.info("Searching (topK={}, threshold={}, segmentedQuery='{}', AND={}, year={}, docType={})",
+                topK, SIMILARITY_THRESHOLD, segmentedQuery, andQuery,
                 request.getYear(), request.getDocType());
 
         List<ChunkResult> topContexts = List.of();

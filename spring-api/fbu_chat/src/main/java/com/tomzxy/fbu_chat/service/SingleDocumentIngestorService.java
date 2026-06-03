@@ -46,6 +46,7 @@ public class SingleDocumentIngestorService {
     private final DocumentChunkRepository chunkRepository;
     private final ParentChunkRepository parentChunkRepository;
     private final RestTemplate aiRestTemplate;
+    private final VietnameseTokenizerService tokenizerService;
     @Qualifier("aiServiceBaseUrl")
     private final String aiBaseUrl;
 
@@ -154,7 +155,10 @@ public class SingleDocumentIngestorService {
             int toIndex = Math.min(i + batchSize, candidates.size());
             List<ChunkCandidate> batch = candidates.subList(i, toIndex);
 
-            List<String> texts = batch.stream().map(ChunkCandidate::getContent).collect(Collectors.toList());
+            List<String> texts = batch.stream()
+                    .map(ChunkCandidate::getContent)
+                    .map(tokenizerService::segmentForEmbedding)
+                    .collect(Collectors.toList());
             List<List<Float>> embeddings = getEmbeddingsFromPython(texts);
 
             if (embeddings == null || embeddings.size() != batch.size()) {
@@ -217,7 +221,10 @@ public class SingleDocumentIngestorService {
             int toIndex = Math.min(i + batchSize, candidates.size());
             List<ChunkCandidate> batch = candidates.subList(i, toIndex);
 
-            List<String> texts = batch.stream().map(ChunkCandidate::getContent).collect(Collectors.toList());
+            List<String> texts = batch.stream()
+                    .map(ChunkCandidate::getContent)
+                    .map(tokenizerService::segmentForEmbedding)
+                    .collect(Collectors.toList());
             List<List<Float>> embeddings = getEmbeddingsFromPython(texts);
 
             if (embeddings == null || embeddings.size() != batch.size()) {
