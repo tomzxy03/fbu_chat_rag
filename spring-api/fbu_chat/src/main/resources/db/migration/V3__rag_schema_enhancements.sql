@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     chunk_index INTEGER,
     doc_type    VARCHAR(100) DEFAULT 'general',
     year        INTEGER DEFAULT 2026,
+    title       VARCHAR(500),
     section     VARCHAR(500),
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );

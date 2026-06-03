@@ -40,27 +40,25 @@ GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 SQL
 
 echo "=== 4. Bật pgvector + unaccent + tạo immutable wrapper ==="
-# Cần chạy với quyền superuser (postgres) để cài Extension và định nghĩa Hàm hệ thống
 sudo -u postgres psql -d "$DB_NAME" <<SQL
--- Bật các extension cần thiết
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS unaccent;
+-- Tạo schema riêng cho các tiện ích mở rộng
+CREATE SCHEMA IF NOT EXISTS extensions;
+GRANT USAGE ON SCHEMA extensions TO $DB_USER;
 
--- Tạo wrapper IMMUTABLE để bypass đặc tính STABLE của unaccent mặc định (Phục vụ GIN Index)
+-- Cài extension vào schema extensions thay vì public
+CREATE EXTENSION IF NOT EXISTS vector SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA extensions;
+
+-- Sửa lại hàm trỏ đúng đường dẫn schema
 CREATE OR REPLACE FUNCTION public.immutable_unaccent(text) 
 RETURNS text AS \$\$
-  SELECT public.unaccent(\$1);
+  SELECT extensions.unaccent(\$1); -- Gọi unaccent từ schema extensions
 \$\$ LANGUAGE sql IMMUTABLE STRICT;
 
--- Phân quyền cho hàm vừa tạo để user của app (Spring Boot) gọi được khi chạy query
 ALTER FUNCTION public.immutable_unaccent(text) OWNER TO $DB_USER;
 
--- Cho phép user truy cập
 GRANT USAGE ON SCHEMA public TO $DB_USER;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
 SQL
-echo "pgvector + unaccent + immutable_unaccent installed!!"
 
 # echo "=== 5. Chạy init.sql ==="
 # SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

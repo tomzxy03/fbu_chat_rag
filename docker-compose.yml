@@ -44,26 +44,23 @@ services:
       - ./spring-api/fbu_chat:/app
     ports:
       - "8080:8080"
-    command: sh -c "sed -i 's/\r$//' ./mvnw && chmod +x ./mvnw && ./mvnw spring-boot:run"
+    # SỬA COMMAND: Ép argument chạy xuyên qua Maven vào tận lõi Spring Boot
+    command: >
+      sh -c "sed -i 's/\r$//' ./mvnw && chmod +x ./mvnw && 
+      ./mvnw spring-boot:run -Dspring-boot.run.arguments='--spring.flyway.baseline-on-migrate=false --spring.flyway.repair-on-migrate=true'"
     depends_on:
       minio:
         condition: service_healthy
       fbuai:
         condition: service_healthy
     environment:
-      - SPRING_FLYWAY_REPAIR_ON_MIGRATE=true
-      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=true
-
       # Spring kết nối thẳng vào host postgres
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:${POSTGRES_PORT:-5432}/${POSTGRES_DB}?sslmode=disable
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:${POSTGRES_PORT:-5432}/${POSTGRES_DB}?currentSchema=public,extensions&sslmode=disable
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-
-      # MinIO Config
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
       - MINIO_ENDPOINT=${MINIO_ENDPOINT}
-
       - AI_SERVICE_URL=http://fbuai:8001
       - GROQ_API_KEY=${GROQ_API_KEY}
     extra_hosts:
