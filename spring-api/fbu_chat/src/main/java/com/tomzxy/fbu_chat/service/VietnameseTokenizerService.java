@@ -53,16 +53,21 @@ public class VietnameseTokenizerService {
                 .map(token -> token.replace(' ', '_'))
                 .collect(java.util.stream.Collectors.joining(" "));
     }
-
     private Tokenizer getTokenizer() {
         Tokenizer current = tokenizer;
         if (current == null) {
             synchronized (this) {
                 current = tokenizer;
                 if (current == null) {
+                    try {
+                        System.loadLibrary("coccoc_tokenizer_jni");
+                        log.info("Native library coccoc_tokenizer_jni loaded successfully");
+                    } catch (UnsatisfiedLinkError e) {
+                        log.error("Failed to load native library: {}", e.getMessage());
+                    }
                     current = Tokenizer.getInstance();
                     tokenizer = current;
-                    log.info("CocCoc tokenizer initialized");
+                    log.info("CocCoc tokenizer initialized via getInstance()");
                 }
             }
         }
