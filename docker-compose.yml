@@ -50,7 +50,7 @@ services:
     command: >
       sh -c "sed -i 's/\r$//' ./mvnw && chmod +x ./mvnw && 
       ./mvnw clean spring-boot:run 
-      -Dspring-boot.run.arguments='--spring.flyway.baseline-on-migrate=false --spring.flyway.repair-on-migrate=true' 
+      -Dspring-boot.run.arguments='--spring.flyway.baseline-on-migrate=true --spring.flyway.baseline-version=0 --spring.flyway.repair-on-migrate=true' 
       -Dspring-boot.run.jvmArguments='-Djava.library.path=/app/libs'"
     depends_on:
       minio:
@@ -67,6 +67,9 @@ services:
       - AI_SERVICE_URL=http://fbuai:8001
       - GROQ_API_KEY=${GROQ_API_KEY}
       - LD_LIBRARY_PATH=/app/libs
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=true
+      - SPRING_FLYWAY_BASELINE_VERSION=0
+      - SPRING_FLYWAY_REPAIR_ON_MIGRATE=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: on-failure
