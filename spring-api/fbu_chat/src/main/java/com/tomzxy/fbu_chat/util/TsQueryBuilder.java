@@ -7,9 +7,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * TsQueryBuilder v3
- *
- * Nâng cấp từ v2:
+ * TsQueryBuilder
+ * Mục tiêu: Tạo tsquery thông minh cho RagService, fix các vấn đề của buildLegacy():
  * 1. Mở rộng STOPWORDS — lọc sạch đại từ/trợ từ giao tiếp ("bạn", "thể",
  * "tôi"...)
  * 2. HIGH_VALUE_TERMS chuyển sang từ đơn — khớp được với extractKeywords()

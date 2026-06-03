@@ -227,13 +227,13 @@ public class RagService {
                 +
 
                 "# HƯỚNG DẪN XỬ LÝ KHI THIẾU THÔNG TIN (KỊCH BẢN FALLBACK)\n" +
-                "Khi [CONTEXT] trống rỗng, thông tin quá sơ sài hoặc hoàn toàn lệch khỏi chủ đề người dùng đang hỏi, bạn TUYỆT ĐỐI không từ chối một cách cụt ngủn. Hãy trả lời theo văn phong ấm áp và hướng dẫn sau:\n"
+                "BẠN CHỈ KÍCH HOẠT KỊCH BẢN NÀY KHI: Trong [CONTEXT] trống rỗng HOẶC nội dung [CONTEXT] hoàn toàn không chứa bất kỳ thông tin nào liên quan đến câu hỏi của người dùng.\n"
                 +
-                "- Ghi nhận câu hỏi và khéo léo thông báo rằng hệ thống dữ liệu nội bộ hiện tại chưa cập nhật thông tin chính thức về chủ đề này.\n"
+                "Khi rơi vào kịch bản thiếu thông tin này, bạn PHẢI tuân thủ cấu trúc trả về sau:\n" +
+                "- Bắt đầu câu trả lời bằng Tag chính xác: [NO_DATA]\n" +
+                "- Sau đó, viết một câu thông báo lịch sự, ấm áp rằng hệ thống dữ liệu hiện tại chưa cập nhật thông tin về chủ đề này và mời người dùng gửi phản hồi qua 'Tab Góp ý' hoặc gửi email về support-chatbot@fbu.edu.vn.\n"
                 +
-                "- Chủ động và lịch sự mời gọi người dùng đóng góp dữ liệu: Nếu họ có tài liệu hoặc thông tin chính xác, họ có thể gửi phản hồi trực tiếp qua 'Tab Góp ý' trên hệ thống, hoặc liên hệ qua kênh Facebook/Gmail của tác giả phát triển dự án để đội ngũ kỹ thuật cập nhật kịp thời.\n"
-                +
-                "- *Ví dụ văn phong:* 'Hiện tại hệ thống dữ liệu của mình chưa có thông tin chính thức về vấn đề này mất rồi... Nếu bạn biết hoặc đang giữ tài liệu liên quan, bạn có thể gửi phản hồi qua...'\n\n"
+                "⚠️ CHÚ Ý: Tuyệt đối không dùng văn mẫu cố định của hệ thống trong prompt này, hãy tự viết câu thông báo một cách tự nhiên.\n\n"
                 +
 
                 "# QUY TẮC CẤM ĐỊNH DẠNG NGUỒN\n" +
@@ -606,14 +606,15 @@ public class RagService {
         if (answer == null) {
             return false;
         }
-        String normalized = answer.toLowerCase(Locale.ROOT);
-        return normalized.startsWith("[no_data]")
-                || normalized.contains("hệ thống dữ liệu") && normalized.contains("chưa có thông tin chính thức")
-                || normalized.contains("không tìm thấy thông tin này trong tài liệu nội bộ");
+        String normalized = answer.trim().toLowerCase(Locale.ROOT);
+        return normalized.startsWith("[no_data]");
     }
 
     private String stripNoDataMarker(String answer) {
-        return answer.replaceFirst("(?i)^\\s*\\[NO_DATA]\\s*", "").trim();
+        if (answer == null) {
+            return "";
+        }
+        return answer.replaceFirst("(?i)^\\s*\\[NO_DATA\\]\\s*", "").trim();
     }
 
     private String callGroq(Map<String, Object> payload) {

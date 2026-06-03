@@ -74,6 +74,13 @@
 			<optional>true</optional>
 		</dependency>
 
+		<dependency>
+    		<groupId>com.coccoc</groupId>
+    		<artifactId>coccoc-tokenizer</artifactId>
+    		<version>1.0</version> <scope>system</scope>
+    		<systemPath>${project.basedir}/libs/coccoc-tokenizer.jar</systemPath>
+		</dependency>
+
 		<!-- Bucket4j rate limiting -->
 		<dependency>
 			<groupId>com.bucket4j</groupId>

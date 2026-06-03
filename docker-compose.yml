@@ -35,26 +35,26 @@ services:
 
   # ─── Spring Boot API ────────────────────────────────────────────
   api:
-    image: eclipse-temurin:17-jdk-alpine
+    # 1. ĐỔI IMAGE: Chuyển từ alpine sang slim (gốc Debian) và nâng lên Java 21 cho khớp file .so
+    image: eclipse-temurin:21-jdk-jammy
     container_name: spring_api
     env_file:
       - .env
     working_dir: /app
     volumes:
       - ./spring-api/fbu_chat:/app
+      - ~/cococ-dist/libcoccoc_tokenizer_jni.so:/app/libs/libcoccoc_tokenizer_jni.so
     ports:
       - "8080:8080"
-    # SỬA COMMAND: Ép argument chạy xuyên qua Maven vào tận lõi Spring Boot
     command: >
       sh -c "sed -i 's/\r$//' ./mvnw && chmod +x ./mvnw && 
-      ./mvnw spring-boot:run -Dspring-boot.run.arguments='--spring.flyway.baseline-on-migrate=false --spring.flyway.repair-on-migrate=true'"
+      ./mvnw spring-boot:run -Dspring-boot.run.arguments='--spring.flyway.baseline-on-migrate=false --spring.flyway.repair-on-migrate=true' -Dspring-boot.run.jvmArguments='-Djava.library.path=/app/libs'"
     depends_on:
       minio:
         condition: service_healthy
       fbuai:
         condition: service_healthy
     environment:
-      # Spring kết nối thẳng vào host postgres
       - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:${POSTGRES_PORT:-5432}/${POSTGRES_DB}?currentSchema=public,extensions&sslmode=disable
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}

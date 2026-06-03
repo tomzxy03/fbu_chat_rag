@@ -9,19 +9,18 @@ public class ChunkCandidate {
     private int pageNumber;
     private int chunkIndex;
 
-    // ─── Ép Jackson map đúng từ snake_case của Python sang camelCase ───
-    @JsonProperty("parent_heading")
+    @JsonProperty("parentHeading")
     private String parentHeading;
 
-    @JsonProperty("parent_content")
+    @JsonProperty("parentContent")
     private String parentContent;
 
     private String title;
     private Integer year;
     
-    @JsonProperty("doc_type") // Check luôn nếu Python trả về doc_type
+    @JsonProperty("docType")
     private String docType;
 
-    @JsonProperty("source_file") // Check luôn nếu Python trả về source_file
+    @JsonProperty("sourceFile")
     private String sourceFile;
 }
