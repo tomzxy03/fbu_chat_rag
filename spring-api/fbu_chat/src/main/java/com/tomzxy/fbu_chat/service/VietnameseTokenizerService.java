@@ -35,9 +35,9 @@ public class VietnameseTokenizerService {
             } catch (UnsatisfiedLinkError | ExceptionInInitializerError | NoClassDefFoundError e) {
                 tokenizerUnavailable = true;
                 log.warn("CocCoc tokenizer native library is unavailable. Falling back to regex tokenizer: {}",
-                        e.getMessage());
+                        describeError(e), e);
             } catch (RuntimeException e) {
-                log.warn("CocCoc tokenizer failed for query. Falling back to regex tokenizer: {}", e.getMessage());
+                log.warn("CocCoc tokenizer failed for query. Falling back to regex tokenizer: {}", describeError(e), e);
             }
         }
 
@@ -59,15 +59,9 @@ public class VietnameseTokenizerService {
             synchronized (this) {
                 current = tokenizer;
                 if (current == null) {
-                    try {
-                        System.loadLibrary("coccoc_tokenizer_jni");
-                        log.info("Native library coccoc_tokenizer_jni loaded successfully");
-                    } catch (UnsatisfiedLinkError e) {
-                        log.error("Failed to load native library: {}", e.getMessage());
-                    }
                     current = Tokenizer.getInstance();
                     tokenizer = current;
-                    log.info("CocCoc tokenizer initialized via getInstance()");
+                    log.info("CocCoc tokenizer initialized");
                 }
             }
         }
@@ -92,4 +86,12 @@ public class VietnameseTokenizerService {
         return WHITESPACE.matcher(normalized).replaceAll(" ").trim();
     }
 
+    private String describeError(Throwable error) {
+        Throwable root = error;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        String message = root.getMessage();
+        return root.getClass().getName() + (message == null ? "" : ": " + message);
+    }
 }
