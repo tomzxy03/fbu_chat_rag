@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -67,5 +68,42 @@ public class StorageService {
             log.error("Failed to upload file to MinIO S3", e);
             throw new RuntimeException("Lỗi trong quá trình lưu trữ file hình ảnh.");
         }
+    }
+
+    public boolean objectExistsByUrl(String url) {
+        String objectKey = extractObjectKey(url);
+        if (objectKey == null || objectKey.isBlank()) {
+            return false;
+        }
+
+        try {
+            s3Client.headObject(HeadObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(objectKey)
+                    .build());
+            return true;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                return false;
+            }
+            log.warn("Failed to verify MinIO object '{}': {}", objectKey, e.getMessage());
+            return false;
+        }
+    }
+
+    private String extractObjectKey(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+
+        String marker = "/" + bucketName + "/";
+        int markerIndex = url.indexOf(marker);
+        if (markerIndex >= 0) {
+            return url.substring(markerIndex + marker.length());
+        }
+
+        return url.startsWith(bucketName + "/")
+                ? url.substring(bucketName.length() + 1)
+                : url;
     }
 }

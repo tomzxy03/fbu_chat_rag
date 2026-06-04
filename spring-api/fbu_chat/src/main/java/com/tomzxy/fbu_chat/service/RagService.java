@@ -61,6 +61,7 @@ public class RagService {
     private final DocumentChunkRepository docRepo;
     private final DocumentImageRepository imageRepo;
     private final ParentChunkRepository parentChunkRepo;
+    private final StorageService storageService;
     private final ObjectMapper objectMapper;
     private final TsQueryBuilder tsQueryBuilder;
     private final VietnameseTokenizerService tokenizerService;
@@ -77,6 +78,7 @@ public class RagService {
             DocumentChunkRepository docRepo,
             DocumentImageRepository imageRepo,
             ParentChunkRepository parentChunkRepo,
+            StorageService storageService,
             ObjectMapper objectMapper,
             TsQueryBuilder tsQueryBuilder,
             VietnameseTokenizerService tokenizerService) {
@@ -87,6 +89,7 @@ public class RagService {
         this.docRepo = docRepo;
         this.imageRepo = imageRepo;
         this.parentChunkRepo = parentChunkRepo;
+        this.storageService = storageService;
         this.objectMapper = objectMapper;
         this.tsQueryBuilder = tsQueryBuilder;
         this.tokenizerService = tokenizerService;
@@ -132,9 +135,10 @@ public class RagService {
 
         List<Float> queryVector = embResponse.getBody().getEmbeddings().get(0);
         String vectorStr = "[" + queryVector.stream().map(String::valueOf).collect(Collectors.joining(",")) + "]";
-        List<ChatResponse.ImageInfo> images = searchImages(vectorStr);
+        boolean imageIntent = isImageRequest(request.getQuery());
+        List<ChatResponse.ImageInfo> images = imageIntent ? searchImages(vectorStr) : List.of();
 
-        if (isImageOnlyRequest(request.getQuery())) {
+        if (imageIntent && isImageOnlyRequest(request.getQuery())) {
             if (!images.isEmpty()) {
                 log.info("Detected image-only query. Returning {} image results without text RAG.", images.size());
                 return buildImageOnlyChatResponse(request, conversation, images);
@@ -204,8 +208,8 @@ public class RagService {
         }
 
         if (topContexts.isEmpty()) {
-            if (!images.isEmpty()) {
-                log.info("No document chunks found, but {} images matched. Returning image-only response.",
+            if (imageIntent && !images.isEmpty()) {
+                log.info("No document chunks found, but image intent matched {} images. Returning image-only response.",
                         images.size());
                 return buildImageOnlyChatResponse(request, conversation, images);
             }
@@ -643,12 +647,21 @@ public class RagService {
         try {
             return imageRepo.findSimilarImages(vectorStr, IMAGE_TOP_K, IMAGE_SIMILARITY_THRESHOLD)
                     .stream()
+                    .filter(this::imageObjectExists)
                     .map(this::toImageInfo)
                     .toList();
         } catch (Exception e) {
             log.warn("Image search failed: {}", e.getMessage());
             return List.of();
         }
+    }
+
+    private boolean imageObjectExists(ImageResult result) {
+        boolean exists = storageService.objectExistsByUrl(result.getUrl());
+        if (!exists) {
+            log.warn("Skipping stale image result because MinIO object is missing: {}", result.getUrl());
+        }
+        return exists;
     }
 
     private ChatResponse.ImageInfo toImageInfo(ImageResult result) {
@@ -682,11 +695,7 @@ public class RagService {
             return false;
         }
 
-        boolean asksForImage = containsAny(q,
-                "hinh anh", "photo", "image", "logo",
-                "cho xem", "xem anh", "xem hinh", "gui anh", "co anh", "co hinh");
-        asksForImage = asksForImage || containsToken(q, "anh") || containsToken(q, "hinh");
-        if (!asksForImage) {
+        if (!hasImageKeyword(q)) {
             return false;
         }
 
@@ -703,6 +712,17 @@ public class RagService {
         return containsAny(q,
                 "truong", "fbu", "khuon vien", "co so", "toa nha", "giang duong",
                 "thu vien", "phong hoc", "dich vong hau", "me linh", "dai hoc");
+    }
+
+    private boolean isImageRequest(String query) {
+        return hasImageKeyword(normalizeForScope(query));
+    }
+
+    private boolean hasImageKeyword(String q) {
+        boolean asksForImage = containsAny(q,
+                "hinh anh", "photo", "image", "logo",
+                "cho xem", "xem anh", "xem hinh", "gui anh", "co anh", "co hinh");
+        return asksForImage || containsToken(q, "anh") || containsToken(q, "hinh");
     }
 
     private boolean containsAny(String value, String... needles) {
