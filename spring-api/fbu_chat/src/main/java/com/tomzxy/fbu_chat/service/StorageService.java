@@ -9,6 +9,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketPolicyRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import org.springframework.web.multipart.MultipartFile;
@@ -43,6 +45,8 @@ public class StorageService {
                 log.error("Failed to check MinIO bucket status", e);
             }
         }
+
+        allowPublicRead();
     }
 
     public String uploadFile(MultipartFile file, String folder) {
@@ -88,6 +92,47 @@ public class StorageService {
             }
             log.warn("Failed to verify MinIO object '{}': {}", objectKey, e.getMessage());
             return false;
+        }
+    }
+
+    public void deleteObjectByUrl(String url) {
+        String objectKey = extractObjectKey(url);
+        if (objectKey == null || objectKey.isBlank()) {
+            return;
+        }
+
+        try {
+            s3Client.deleteObject(DeleteObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(objectKey)
+                    .build());
+        } catch (S3Exception e) {
+            log.warn("Failed to delete MinIO object '{}': {}", objectKey, e.getMessage());
+        }
+    }
+
+    private void allowPublicRead() {
+        String policy = """
+                {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Effect": "Allow",
+                      "Principal": "*",
+                      "Action": ["s3:GetObject"],
+                      "Resource": ["arn:aws:s3:::%s/*"]
+                    }
+                  ]
+                }
+                """.formatted(bucketName);
+
+        try {
+            s3Client.putBucketPolicy(PutBucketPolicyRequest.builder()
+                    .bucket(bucketName)
+                    .policy(policy)
+                    .build());
+        } catch (S3Exception e) {
+            log.warn("Failed to apply public read policy for MinIO bucket '{}': {}", bucketName, e.getMessage());
         }
     }
 

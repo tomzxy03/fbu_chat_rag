@@ -5,6 +5,11 @@ export async function getDocuments(token, onUnauthorized) {
   return Array.isArray(data) ? data : [];
 }
 
+export async function getDocumentImages(token, onUnauthorized) {
+  const data = await documentRepository.fetchDocumentImages(token, onUnauthorized);
+  return Array.isArray(data) ? data : [];
+}
+
 export async function ingestDocument(payload, token, onUnauthorized) {
   const responses = await documentRepository.uploadDocument(payload, token, onUnauthorized);
   if (Array.isArray(responses)) {
@@ -21,4 +26,8 @@ export async function ingestDocumentImage(payload, token, onUnauthorized) {
 
 export function removeDocument(filename, token, onUnauthorized) {
   return documentRepository.deleteDocument(filename, token, onUnauthorized);
+}
+
+export function removeDocumentImage(id, token, onUnauthorized) {
+  return documentRepository.deleteDocumentImage(id, token, onUnauthorized);
 }

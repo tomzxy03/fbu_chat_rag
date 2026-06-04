@@ -13,6 +13,8 @@ import java.util.UUID;
 @Repository
 public interface DocumentImageRepository extends JpaRepository<DocumentImage, UUID> {
 
+    List<DocumentImage> findAllByOrderByUploadedAtDesc();
+
     @Query(value = """
             SELECT minio_url AS url,
                    caption,

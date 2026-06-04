@@ -1,6 +1,7 @@
 package com.tomzxy.fbu_chat.service;
 
 import com.tomzxy.fbu_chat.dto.EmbeddingRequest;
+import com.tomzxy.fbu_chat.dto.DocumentImageDto;
 import com.tomzxy.fbu_chat.dto.EmbeddingResponse;
 import com.tomzxy.fbu_chat.dto.ImageUploadResponse;
 import com.tomzxy.fbu_chat.entity.DocumentImage;
@@ -15,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -86,6 +88,21 @@ public class ImageService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
+    public List<DocumentImageDto> listImages() {
+        return imageRepository.findAllByOrderByUploadedAtDesc().stream()
+                .map(this::toDto)
+                .toList();
+    }
+
+    @Transactional
+    public void deleteImage(UUID id) {
+        imageRepository.findById(id).ifPresent(image -> {
+            imageRepository.delete(image);
+            storageService.deleteObjectByUrl(image.getMinioUrl());
+        });
+    }
+
     private void validateImageUpload(MultipartFile file, String caption, String tags, String category) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File ảnh không được để trống");
@@ -141,5 +158,16 @@ public class ImageService {
             arr[i] = vec.get(i);
         }
         return arr;
+    }
+
+    private DocumentImageDto toDto(DocumentImage image) {
+        return DocumentImageDto.builder()
+                .id(image.getId())
+                .url(image.getMinioUrl())
+                .caption(image.getCaption())
+                .tags(image.getTags())
+                .category(image.getCategory())
+                .uploadedAt(image.getUploadedAt())
+                .build();
     }
 }

@@ -2,11 +2,15 @@ import { useEffect } from 'react';
 import { FileText } from 'lucide-react';
 import { DocumentTable } from '../components/admin/DocumentTable';
 import { DocumentUploadForm } from '../components/admin/DocumentUploadForm';
+import { ImageGallery } from '../components/admin/ImageGallery';
 import { ImageUploadForm } from '../components/admin/ImageUploadForm';
 
 export function AdminPage({ documents, isAdmin, onLogin, token }) {
   useEffect(() => {
-    if (token && isAdmin) documents.loadDocuments();
+    if (token && isAdmin) {
+      documents.loadDocuments();
+      documents.loadImages();
+    }
   }, [token, isAdmin]);
 
   const handleUpload = async (payload) => {
@@ -32,6 +36,16 @@ export function AdminPage({ documents, isAdmin, onLogin, token }) {
       await documents.deleteDocument(filename);
     } catch (err) {
       documents.setStatus({ type: 'error', text: `Xóa thất bại: ${err.message}` });
+    }
+  };
+
+  const handleImageDelete = async (image) => {
+    if (!confirm(`Xóa ảnh "${image.caption || image.id}"?`)) return;
+
+    try {
+      await documents.deleteImage(image.id);
+    } catch (err) {
+      documents.setImageStatus({ type: 'error', text: `Xóa ảnh thất bại: ${err.message}` });
     }
   };
 
@@ -62,9 +76,16 @@ export function AdminPage({ documents, isAdmin, onLogin, token }) {
       <header className="topbar">
         <div>
           <p>Quản trị</p>
-          <h2>Tài liệu tri thức</h2>
+          <h2>Tài liệu và hình ảnh tri thức</h2>
         </div>
-        <button className="secondary-button" type="button" onClick={documents.loadDocuments}>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => {
+            documents.loadDocuments();
+            documents.loadImages();
+          }}
+        >
           Làm mới
         </button>
       </header>
@@ -72,6 +93,11 @@ export function AdminPage({ documents, isAdmin, onLogin, token }) {
       <section className="admin-grid">
         <DocumentUploadForm onUpload={handleUpload} status={documents.status} />
         <ImageUploadForm onUpload={handleImageUpload} status={documents.imageStatus} />
+        <ImageGallery
+          images={documents.images}
+          imagesLoading={documents.imagesLoading}
+          onDelete={handleImageDelete}
+        />
         <DocumentTable docs={documents.docs} docsLoading={documents.docsLoading} onDelete={handleDelete} />
       </section>
     </main>

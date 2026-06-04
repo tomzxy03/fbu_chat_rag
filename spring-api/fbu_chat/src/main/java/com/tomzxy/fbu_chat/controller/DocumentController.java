@@ -1,5 +1,6 @@
 package com.tomzxy.fbu_chat.controller;
 
+import com.tomzxy.fbu_chat.dto.DocumentImageDto;
 import com.tomzxy.fbu_chat.dto.DocumentSummaryDto;
 import com.tomzxy.fbu_chat.dto.ImageUploadResponse;
 import com.tomzxy.fbu_chat.dto.IngestResponse;
@@ -12,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -43,6 +45,25 @@ public class DocumentController {
             @RequestParam(value = "tags", required = false) String tags,
             @RequestParam(value = "category", required = false) String category) {
         return ResponseEntity.ok(imageService.uploadImage(file, caption, tags, category));
+    }
+
+    /**
+     * GET /api/documents/images — ADMIN only
+     * Trả về danh sách ảnh đã upload để quản trị metadata và preview.
+     */
+    @GetMapping("/images")
+    public ResponseEntity<List<DocumentImageDto>> listImages() {
+        return ResponseEntity.ok(imageService.listImages());
+    }
+
+    /**
+     * DELETE /api/documents/images/{id} — ADMIN only
+     * Xóa metadata ảnh và object tương ứng trên MinIO nếu còn tồn tại.
+     */
+    @DeleteMapping("/images/{id}")
+    public ResponseEntity<Map<String, String>> deleteImage(@PathVariable UUID id) {
+        imageService.deleteImage(id);
+        return ResponseEntity.ok(Map.of("message", "Đã xóa ảnh: " + id));
     }
 
     /**

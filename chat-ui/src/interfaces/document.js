@@ -7,6 +7,16 @@
  */
 
 /**
+ * @typedef {Object} DocumentImageItem
+ * @property {string} id
+ * @property {string} url
+ * @property {string=} caption
+ * @property {string=} tags
+ * @property {string=} category
+ * @property {string=} uploadedAt
+ */
+
+/**
  * @typedef {Object} UploadPayload
  * @property {File} file
  * @property {string|number} year

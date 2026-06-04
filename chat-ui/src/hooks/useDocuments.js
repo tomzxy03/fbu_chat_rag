@@ -1,9 +1,18 @@
 import { useState } from 'react';
-import { getDocuments, ingestDocument, ingestDocumentImage, removeDocument } from '../services/documentService';
+import {
+  getDocumentImages,
+  getDocuments,
+  ingestDocument,
+  ingestDocumentImage,
+  removeDocument,
+  removeDocumentImage
+} from '../services/documentService';
 
 export function useDocuments({ token, onUnauthorized }) {
   const [docs, setDocs] = useState([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [images, setImages] = useState([]);
+  const [imagesLoading, setImagesLoading] = useState(false);
   const [status, setStatus] = useState(null);
   const [imageStatus, setImageStatus] = useState(null);
 
@@ -20,6 +29,19 @@ export function useDocuments({ token, onUnauthorized }) {
     }
   };
 
+  const loadImages = async () => {
+    if (!token) return;
+    setImagesLoading(true);
+
+    try {
+      setImages(await getDocumentImages(token, onUnauthorized));
+    } catch {
+      setImageStatus({ type: 'error', text: 'Không thể tải danh sách ảnh' });
+    } finally {
+      setImagesLoading(false);
+    }
+  };
+
   const uploadDocument = async (payload) => {
     setStatus({ type: 'muted', text: 'Đang upload...' });
     const message = await ingestDocument(payload, token, onUnauthorized);
@@ -31,6 +53,7 @@ export function useDocuments({ token, onUnauthorized }) {
     setImageStatus({ type: 'muted', text: 'Đang upload ảnh...' });
     const message = await ingestDocumentImage(payload, token, onUnauthorized);
     setImageStatus({ type: 'success', text: message });
+    await loadImages();
   };
 
   const deleteDocument = async (filename) => {
@@ -39,16 +62,26 @@ export function useDocuments({ token, onUnauthorized }) {
     await loadDocuments();
   };
 
+  const deleteImage = async (id) => {
+    await removeDocumentImage(id, token, onUnauthorized);
+    setImageStatus({ type: 'success', text: 'Đã xóa ảnh' });
+    await loadImages();
+  };
+
   return {
     docs,
     docsLoading,
+    images,
+    imagesLoading,
     loadDocuments,
+    loadImages,
     imageStatus,
     setImageStatus,
     setStatus,
     status,
     uploadDocument,
     uploadImage,
-    deleteDocument
+    deleteDocument,
+    deleteImage
   };
 }
