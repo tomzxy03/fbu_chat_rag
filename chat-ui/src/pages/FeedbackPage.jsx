@@ -1,77 +1,64 @@
-import { useState } from 'react';
-import { MessageCircle, Send } from 'lucide-react';
+import { Mail, Facebook, MessageCircle, ExternalLink } from 'lucide-react';
 
 export function FeedbackPage() {
-  const [form, setForm] = useState({ topic: '', message: '', contact: '' });
-  const [status, setStatus] = useState(null);
-
-  const updateField = (field, value) => {
-    setForm((current) => ({ ...current, [field]: value }));
-    setStatus(null);
-  };
-
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    setStatus({ type: 'success', text: 'Đã ghi nhận góp ý của bạn.' });
-    setForm({ topic: '', message: '', contact: '' });
-  };
+  const supportChannels = [
+    {
+      name: 'Email hỗ trợ',
+      value: 'trinhdat24102003@gmail.com',
+      link: 'mailto:trinhdat24102003@gmail.com',
+      icon: <Mail size={24} />,
+      desc: 'Phản hồi chi tiết về nội dung câu trả lời'
+    },
+    {
+      name: 'Fanpage FBU',
+      value: 'Trịnh Đạt',
+      link: 'https://web.facebook.com/trinh.at.293350',
+      icon: <Facebook size={24} />,
+      desc: 'Nhắn tin trực tiếp qua Messenger'
+    },
+    {
+      name: 'Zalo Group',
+      value: 'Tham gia nhóm Chatbot',
+      link: '#', // Thay link Zalo của bác vào đây
+      icon: <MessageCircle size={24} />,
+      desc: 'Cộng đồng người dùng FBU Chat'
+    }
+  ];
 
   return (
     <main className="admin-main">
       <header className="topbar">
         <div>
-          <p>Góp ý</p>
-          <h2>Phản hồi trải nghiệm</h2>
+          <p>Hỗ trợ</p>
+          <h2>Kênh phản hồi & Liên hệ</h2>
         </div>
       </header>
 
       <section className="feedback-wrap">
-        <form className="admin-panel feedback-form" onSubmit={handleSubmit}>
+        <div className="admin-panel feedback-info">
           <div className="panel-heading">
             <MessageCircle size={22} />
             <div>
-              <h3>Nội dung góp ý</h3>
-              <p>Ý kiến của bạn giúp cải thiện trợ lý FBU Chat.</p>
+              <h3>Chúng tôi luôn lắng nghe</h3>
+              <p>Hãy liên hệ với chúng tôi qua các kênh sau để đóng góp ý kiến hoặc báo lỗi.</p>
             </div>
           </div>
 
-          <label>
-            Chủ đề
-            <input
-              onChange={(event) => updateField('topic', event.target.value)}
-              placeholder="Ví dụ: Câu trả lời, giao diện, tài liệu"
-              required
-              value={form.topic}
-            />
-          </label>
-
-          <label>
-            Góp ý
-            <textarea
-              onChange={(event) => updateField('message', event.target.value)}
-              placeholder="Nhập nội dung góp ý..."
-              required
-              rows={7}
-              value={form.message}
-            />
-          </label>
-
-          <label>
-            Liên hệ
-            <input
-              onChange={(event) => updateField('contact', event.target.value)}
-              placeholder="Email hoặc số điện thoại"
-              value={form.contact}
-            />
-          </label>
-
-          <button className="primary-button feedback-submit" type="submit">
-            <Send size={17} />
-            Gửi góp ý
-          </button>
-
-          {status && <p className={`status-text ${status.type}`}>{status.text}</p>}
-        </form>
+          <div className="channels-grid">
+            {supportChannels.map((channel, idx) => (
+              <a key={idx} href={channel.link} className="channel-card" target="_blank" rel="noreferrer">
+                <div className="icon-box">{channel.icon}</div>
+                <div className="text-box">
+                  <h4>{channel.name}</h4>
+                  <p>{channel.value}</p>
+                  <span>{channel.desc}</span>
+                </div>
+  
+  <ExternalLink size={16} className="external-icon" />
+</a>
+            ))}
+          </div>
+        </div>
       </section>
     </main>
   );
