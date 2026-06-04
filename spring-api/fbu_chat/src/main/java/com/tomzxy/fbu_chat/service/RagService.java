@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.text.Normalizer;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -133,6 +134,15 @@ public class RagService {
         String vectorStr = "[" + queryVector.stream().map(String::valueOf).collect(Collectors.joining(",")) + "]";
         List<ChatResponse.ImageInfo> images = searchImages(vectorStr);
 
+        if (isImageOnlyRequest(request.getQuery())) {
+            if (!images.isEmpty()) {
+                log.info("Detected image-only query. Returning {} image results without text RAG.", images.size());
+                return buildImageOnlyChatResponse(request, conversation, images);
+            }
+            log.info("Detected image-only query, but no image matched. Returning image fallback.");
+            return buildImageFallbackChatResponse(request, conversation);
+        }
+
         int topK = request.getTopK() != null ? request.getTopK() : DEFAULT_TOP_K;
         int candidateK = topK * 3;
 
@@ -233,6 +243,8 @@ public class RagService {
                 +
                 "3. Quản lý lịch sử hội thoại: Đọc kỹ các câu trả lời trước đó để KHÔNG lặp lại thông tin cũ. Chỉ tập trung bổ sung thông tin mới đáp ứng đúng câu hỏi tiếp diễn.\n\n"
                 +
+                "4. Nếu câu hỏi yêu cầu liệt kê bộ môn/học phần, hãy liệt kê đầy đủ tất cả bộ môn và học phần liên quan xuất hiện trong [CONTEXT].\n\n"
+                +
 
                 "# HƯỚNG DẪN XỬ LÝ KHI THIẾU THÔNG TIN (KỊCH BẢN FALLBACK)\n" +
                 "BẠN CHỈ KÍCH HOẠT KỊCH BẢN NÀY KHI: Trong [CONTEXT] trống rỗng HOẶC nội dung [CONTEXT] hoàn toàn không chứa bất kỳ thông tin nào liên quan đến câu hỏi của người dùng.\n"
@@ -311,7 +323,9 @@ public class RagService {
 
         List<Map<String, Object>> sources = noDataAnswer
                 ? List.of()
-                : topContexts.stream().map(c -> {
+                : topContexts.stream()
+                .filter(distinctBySourceFile())
+                .map(c -> {
                     Map<String, Object> s = new HashMap<>();
                     s.put("file", c.getSourceFile());
                     s.put("year", c.getYear());
@@ -555,6 +569,40 @@ public class RagService {
                 .build();
     }
 
+    private ChatResponse buildImageFallbackChatResponse(ChatRequest request, Conversation conversation) {
+        String answer = "Hiện tại hệ thống chưa tìm thấy hình ảnh phù hợp với yêu cầu của bạn.";
+
+        UUID messageId = null;
+        if (conversation != null) {
+            Message userMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("user")
+                    .content(request.getQuery())
+                    .build();
+            messageRepo.save(userMsg);
+
+            Message assistantMsg = Message.builder()
+                    .conversation(conversation)
+                    .role("assistant")
+                    .content(answer)
+                    .sources("[]")
+                    .build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+
+            conversationRepo.save(conversation);
+        }
+
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId)
+                .query(request.getQuery())
+                .answer(answer)
+                .sources(List.of())
+                .images(List.of())
+                .build();
+    }
+
     private ChatResponse buildFallbackChatResponse(ChatRequest request, Conversation conversation) {
         String answer = "Hiện tại hệ thống dữ liệu của mình chưa có thông tin chính thức về câu hỏi: \""
                 + request.getQuery()
@@ -628,6 +676,48 @@ public class RagService {
         return answer.replaceFirst("(?i)^\\s*\\[NO_DATA\\]\\s*", "").trim();
     }
 
+    private boolean isImageOnlyRequest(String query) {
+        String q = normalizeForScope(query);
+        if (q.isBlank()) {
+            return false;
+        }
+
+        boolean asksForImage = containsAny(q,
+                "hinh anh", "photo", "image", "logo",
+                "cho xem", "xem anh", "xem hinh", "gui anh", "co anh", "co hinh");
+        asksForImage = asksForImage || containsToken(q, "anh") || containsToken(q, "hinh");
+        if (!asksForImage) {
+            return false;
+        }
+
+        boolean asksForTextInfo = containsAny(q,
+                "quy dinh", "quy che", "thu tuc", "huong dan", "hoc phi",
+                "diem", "gpa", "tin chi", "phuc khao", "hoan thi", "lich thi",
+                "lich hoc", "hoc bong", "mien giam", "tot nghiep", "bao nhieu",
+                "khi nao", "o dau", "lam the nao", "can gi", "dieu kien",
+                "co gi", "gioi thieu", "thong tin", "mo ta");
+        if (asksForTextInfo) {
+            return false;
+        }
+
+        return containsAny(q,
+                "truong", "fbu", "khuon vien", "co so", "toa nha", "giang duong",
+                "thu vien", "phong hoc", "dich vong hau", "me linh", "dai hoc");
+    }
+
+    private boolean containsAny(String value, String... needles) {
+        for (String needle : needles) {
+            if (value.contains(needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsToken(String value, String token) {
+        return Arrays.asList(value.split("\\s+")).contains(token);
+    }
+
     private String callGroq(Map<String, Object> payload) {
         ensureGroqApiKeyConfigured();
 
@@ -683,7 +773,7 @@ public class RagService {
             return List.of();
 
         if (request.getYear() == null && request.getDocType() == null)
-            return results;
+            return filterByQueryScope(results, request.getQuery());
 
         List<ChunkResult> filtered = results.stream()
                 .filter(c -> request.getYear() == null
@@ -697,10 +787,71 @@ public class RagService {
         if (!results.isEmpty() && filtered.size() < results.size() / 2) {
             log.warn("Metadata filter dropped {}/{} chunks. Keeping unfiltered candidates to avoid losing relevant context.",
                     results.size() - filtered.size(), results.size());
+            return filterByQueryScope(results, request.getQuery());
+        }
+
+        return filterByQueryScope(filtered, request.getQuery());
+    }
+
+    private List<ChunkResult> filterByQueryScope(List<ChunkResult> results, String query) {
+        List<String> scopeTerms = inferQueryScopeTerms(query);
+        if (scopeTerms.isEmpty()) {
             return results;
         }
 
-        return filtered;
+        List<ChunkResult> scoped = results.stream()
+                .filter(c -> {
+                    String haystack = normalizeForScope(
+                            String.join(" ",
+                                    Objects.toString(c.getSourceFile(), ""),
+                                    Objects.toString(c.getContent(), ""),
+                                    Objects.toString(c.getSection(), "")));
+                    return scopeTerms.stream().anyMatch(haystack::contains);
+                })
+                .collect(Collectors.toList());
+
+        if (!scoped.isEmpty()) {
+            log.info("Query scope filter kept {}/{} chunks for terms {}", scoped.size(), results.size(), scopeTerms);
+            return scoped;
+        }
+
+        log.warn("Query scope filter matched no chunks for terms {}. Keeping metadata-filtered candidates.", scopeTerms);
+        return results;
+    }
+
+    private List<String> inferQueryScopeTerms(String query) {
+        String q = normalizeForScope(query);
+        if (q.contains("cong nghe thong tin") || q.contains("cntt") || q.contains("tin ung dung")) {
+            return List.of("viencongnghethongtin", "cong nghe thong tin", "cntt", "tin ung dung");
+        }
+        if (q.contains("ke toan") || q.contains("kiem toan")) {
+            return List.of("vienketoankiemtoan", "ke toan", "kiem toan");
+        }
+        if (q.contains("quan tri kinh doanh") || q.contains("kinh doanh")) {
+            return List.of("vienquantrikinhdoanh", "quan tri kinh doanh");
+        }
+        if (q.contains("tai chinh") || q.contains("ngan hang")) {
+            return List.of("taichinhnganhang", "tai chinh", "ngan hang");
+        }
+        if (q.contains("ngoai ngu")) {
+            return List.of("ngoaingu", "ngoai ngu");
+        }
+        return List.of();
+    }
+
+    private String normalizeForScope(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT);
+        return normalized.replaceAll("[^a-z0-9]+", " ").trim();
+    }
+
+    private java.util.function.Predicate<ChunkResult> distinctBySourceFile() {
+        Set<String> seen = new HashSet<>();
+        return c -> seen.add(Objects.toString(c.getSourceFile(), ""));
     }
 
     private String buildContextWithParents(List<ChunkResult> contexts) {

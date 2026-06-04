@@ -1,7 +1,7 @@
 ---
-source: "general_data.md"
+source: "qa_postponed_exam.md"
 year: 2026
-type: "qa"
+type: "regulation"
 title: "Hỏi đáp về thủ tục hoãn thi tại FBU"
 issued_by: "FBU_STUDENT"
 ---
@@ -9,15 +9,26 @@ issued_by: "FBU_STUDENT"
 ## Hoãn thi
 > Giải đáp chi tiết về thủ tục, thời gian và địa điểm nộp đơn hoãn thi.
 
-### Câu hỏi: Hoãn thi thì hoãn được bao lâu và nộp đơn ở đâu?
+### Câu hỏi: Sinh viên được xin hoãn thi trong trường hợp nào?
 
 **Trả lời:**  
-Chào bạn, đối với trường hợp không thể tham gia kỳ thi đúng lịch vì lý do bất khả kháng (ốm đau, việc gia đình đột xuất...), bạn có thể làm đơn xin hoãn thi. Thủ tục cụ thể như sau:
+Sinh viên có thể xin hoãn thi khi không thể tham gia kỳ thi đúng lịch vì lý do bất khả kháng, ví dụ ốm đau hoặc có việc gia đình đột xuất. Sinh viên cần có đơn xin hoãn thi và giấy tờ chứng minh lý do nếu được yêu cầu.
 
-1. **Nơi nộp đơn:** Bạn mang đơn xin hoãn thi (có xác nhận của cố vấn học tập hoặc giấy tờ chứng minh lý do) nộp trực tiếp tại **Phòng Khảo thí, tầng 2 cơ sở 31 Dịch Vọng Hậu**. Nên nộp trước ngày thi ít nhất 3 ngày làm việc để được xử lý kịp thời.
+### Câu hỏi: Sinh viên nộp đơn hoãn thi ở đâu?
 
-2. **Thời gian hoãn được:** Bạn sẽ được **thi lại vào lần thi gần nhất** của môn học đó (thường là đợt thi lại hoặc đợt thi cùng môn trong học kỳ tiếp theo). Không có giới hạn số lần hoãn, nhưng mỗi lần đều cần lý do chính đáng.
+**Trả lời:**  
+Sinh viên mang đơn xin hoãn thi, có xác nhận của cố vấn học tập hoặc giấy tờ chứng minh lý do, nộp trực tiếp tại **Phòng Khảo thí, tầng 2, cơ sở 31 Dịch Vọng Hậu**.
 
-3. **Lưu ý quan trọng:** Nếu không hoãn mà bỏ thi, bạn sẽ bị điểm 0 và phải học lại môn đó (không được thi lại miễn phí). Vì vậy, hãy chủ động làm đơn hoãn nếu không thể dự thi.
+Sinh viên nên nộp đơn trước ngày thi ít nhất **3 ngày làm việc** để được xử lý kịp thời.
 
-Nếu còn thắc mắc, bạn có thể đến trực tiếp phòng khảo thí vào giờ hành chính để được hướng dẫn cụ thể hơn.
+### Câu hỏi: Hoãn thi thì được hoãn bao lâu?
+
+**Trả lời:**  
+Sau khi được chấp thuận hoãn thi, sinh viên sẽ được **thi lại vào lần thi gần nhất** của môn học đó. Lần thi gần nhất thường là đợt thi lại hoặc đợt thi cùng môn trong học kỳ tiếp theo.
+
+Không có giới hạn cố định về số lần hoãn, nhưng mỗi lần xin hoãn đều cần có lý do chính đáng và được xem xét theo quy định.
+
+### Câu hỏi: Nếu không làm đơn hoãn thi mà bỏ thi thì sao?
+
+**Trả lời:**  
+Nếu sinh viên không làm đơn hoãn thi mà bỏ thi, sinh viên có thể bị điểm 0 và phải học lại môn đó, không được thi lại miễn phí. Vì vậy, sinh viên cần chủ động làm đơn hoãn nếu không thể dự thi đúng lịch.

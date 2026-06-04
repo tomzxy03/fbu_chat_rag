@@ -1,15 +1,14 @@
-spring_api  | 2026-06-03T11:29:17.032Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Searching (topK=5, threshold=0.65, segmentedQuery='bộ_môn tin ứng_dụng và toán gồm các môn gì', AND=bộ <-> môn & ứng <-> dụng & toán:* & tin:*, year=null, docType=null)
-spring_api  | 2026-06-03T11:29:17.287Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Slot-filling inferred docType='introduction' from query
-spring_api  | 2026-06-03T11:29:17.301Z  WARN 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Metadata filter dropped 4/5 chunks — Check your DB metadata injection quality!
-spring_api  | 2026-06-03T11:29:17.301Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Pass 1 (AND) after metadata filter: 1 results
-spring_api  | 2026-06-03T11:29:17.301Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Pass 1 insufficient, trying OR fallback...
-spring_api  | 2026-06-03T11:29:17.342Z  WARN 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Metadata filter dropped 4/5 chunks — Check your DB metadata injection quality!
-spring_api  | 2026-06-03T11:29:17.342Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Pass 2 (OR) after metadata filter: 1 results
-spring_api  | 2026-06-03T11:29:17.343Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Hybrid insufficient, falling back to pure vector...
-spring_api  | 2026-06-03T11:29:17.347Z  WARN 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Metadata filter dropped 4/5 chunks — Check your DB metadata injection quality!
-spring_api  | 2026-06-03T11:29:17.347Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Pass 3 (vector) after metadata filter: 1 results
-spring_api  | 2026-06-03T11:29:17.347Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Final chunks for LLM: 1
-spring_api  | 2026-06-03T11:29:17.351Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : === CHUNKS SENT TO LLM (1) ===
-spring_api  | 2026-06-03T11:29:17.351Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : [1] https://viencongnghethongtin.fbu.edu.vn/gioi-thieu-chung/ | len=171 | preview=[Tài liệu: Giới thiệu chung Viện Công nghệ thông tin FBU] [Giới thiệu chung - Vi
-spring_api  | 2026-06-03T11:29:17.351Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : ================================
-spring_api  | 2026-06-03T11:29:17.351Z  INFO 202 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Calling Groq LLM Generator...
+spring_api  | 2026-06-03T12:36:35.305Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Searching (topK=5, threshold=0.65, segmentedQuery='chào tôi muốn hỏi về các bộ_môn của ngành công_nghệ thông_tin', AND=bộ <-> môn & công <-> nghệ & thông <-> tin & ngành:*, year=null, docType=null) d Detach
+spring_api  | 2026-06-03T12:36:35.570Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Slot-filling inferred docType='department' from query
+spring_api  | 2026-06-03T12:36:35.588Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Pass 1 (AND) after metadata filter: 4 results
+spring_api  | 2026-06-03T12:36:35.589Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Final chunks for LLM: 4
+spring_api  | 2026-06-03T12:36:35.600Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : === CHUNKS SENT TO LLM (4) ===
+spring_api  | 2026-06-03T12:36:35.600Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : [1] https://viencongnghethongtin.fbu.edu.vn/cac-bo-mon/ | len=753 | preview=[Tài liệu: Danh sách bộ môn trực thuộc Viện Công nghệ thông tin FBU] [Các bộ môn
+spring_api  | 2026-06-03T12:36:35.601Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : [2] https://vienquantrikinhdoanh.fbu.edu.vn/co-so-vat-chat/ | len=152 | preview=[Tài liệu: Các bộ môn Viện Quản trị - Kinh doanh FBU] [Các bộ môn - Viện Quản Tr
+spring_api  | 2026-06-03T12:36:35.601Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : [3] https://viencongnghethongtin.fbu.edu.vn/cac-bo-mon/ | len=205 | preview=[Tài liệu: Danh sách bộ môn trực thuộc Viện Công nghệ thông tin FBU] [Các bộ môn
+spring_api  | 2026-06-03T12:36:35.601Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : [4] https://vienketoankiemtoan.fbu.edu.vn/cac-bo-mon/ | len=365 | preview=[Tài liệu: Các bộ môn thuộc Viện Kế toán - Kiểm toán FBU] [Các bộ môn - Viện Kế 
+spring_api  | 2026-06-03T12:36:35.602Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : ================================
+spring_api  | 2026-06-03T12:36:35.602Z  INFO 168 --- [fbu_chat] [nio-8080-exec-2] com.tomzxy.fbu_chat.service.RagService   : Calling Groq LLM Generator...
+fbuai       | INFO:     127.0.0.1:35528 - "GET /health HTTP/1.1" 200 OK
+fbu_chatui  | 172.18.0.1 - - [03/Jun/2026:12:36:37 +0000] "POST /api/chat HTTP/1.1" 200 2698 "http://100.116.126.66/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" "-"
+fbu_chatui  | 172.18.0.1 - - [03/Jun/2026:12:36:37 +0000] "GET /api/chat/conversations HTTP/1.1" 200 349 "http://100.116.126.66/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" "-"

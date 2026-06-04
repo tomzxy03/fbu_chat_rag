@@ -1,6 +1,19 @@
 import { useState } from 'react';
 import { ImageUp } from 'lucide-react';
 
+const IMAGE_CATEGORIES = [
+  { value: 'co_so_vat_chat', label: 'Cơ sở vật chất' },
+  { value: 'khuon_vien', label: 'Khuôn viên' },
+  { value: 'giang_duong', label: 'Giảng đường' },
+  { value: 'thu_vien', label: 'Thư viện' },
+  { value: 'phong_thuc_hanh', label: 'Phòng thực hành' },
+  { value: 'the_thao', label: 'Thể thao' },
+  { value: 'su_kien', label: 'Sự kiện' },
+  { value: 'logo', label: 'Logo / nhận diện' },
+  { value: 'tai_lieu', label: 'Tài liệu / thông báo' },
+  { value: 'khac', label: 'Khác' }
+];
+
 export function ImageUploadForm({ onUpload, status }) {
   const [file, setFile] = useState(null);
   const [caption, setCaption] = useState('');
@@ -19,8 +32,16 @@ export function ImageUploadForm({ onUpload, status }) {
       setFormError('File phải là ảnh.');
       return;
     }
-    if (!trimmedCaption && !trimmedTags) {
-      setFormError('Cần nhập ít nhất mô tả hoặc từ khóa.');
+    if (trimmedCaption.length < 10) {
+      setFormError('Mô tả cần có ít nhất 10 ký tự.');
+      return;
+    }
+    if (!trimmedTags) {
+      setFormError('Cần nhập ít nhất một từ khóa.');
+      return;
+    }
+    if (!category) {
+      setFormError('Cần chọn category cho ảnh.');
       return;
     }
 
@@ -72,6 +93,7 @@ export function ImageUploadForm({ onUpload, status }) {
         <textarea
           onChange={(event) => setCaption(event.target.value)}
           placeholder="Thư viện tầng 3 cơ sở Mê Linh"
+          required
           rows={3}
           value={caption}
         />
@@ -82,6 +104,7 @@ export function ImageUploadForm({ onUpload, status }) {
         <textarea
           onChange={(event) => setTags(event.target.value)}
           placeholder="thư viện, cơ sở vật chất, đọc sách, Mê Linh"
+          required
           rows={3}
           value={tags}
         />
@@ -89,15 +112,24 @@ export function ImageUploadForm({ onUpload, status }) {
 
       <label>
         Category
-        <input
+        <select
           onChange={(event) => setCategory(event.target.value)}
-          placeholder="co_so_vat_chat"
-          type="text"
+          required
           value={category}
-        />
+        >
+          {IMAGE_CATEGORIES.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </select>
       </label>
 
-      <button className="primary-button" disabled={uploading || !file} type="submit">
+      <button
+        className="primary-button"
+        disabled={uploading || !file || !caption.trim() || !tags.trim() || !category}
+        type="submit"
+      >
         {uploading ? 'Đang upload ảnh...' : 'Upload ảnh'}
       </button>
 

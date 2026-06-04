@@ -14,11 +14,24 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 public class ImageService {
+    private static final int MIN_CAPTION_LENGTH = 10;
+    private static final Set<String> ALLOWED_CATEGORIES = Set.of(
+            "co_so_vat_chat",
+            "khuon_vien",
+            "giang_duong",
+            "thu_vien",
+            "phong_thuc_hanh",
+            "the_thao",
+            "su_kien",
+            "logo",
+            "tai_lieu",
+            "khac");
 
     private final StorageService storageService;
     private final DocumentImageRepository imageRepository;
@@ -41,7 +54,7 @@ public class ImageService {
 
     @Transactional
     public ImageUploadResponse uploadImage(MultipartFile file, String caption, String tags, String category) {
-        validateImageUpload(file, caption, tags);
+        validateImageUpload(file, caption, tags, category);
 
         String normalizedCaption = normalize(caption);
         String normalizedTags = normalize(tags);
@@ -73,7 +86,7 @@ public class ImageService {
                 .build();
     }
 
-    private void validateImageUpload(MultipartFile file, String caption, String tags) {
+    private void validateImageUpload(MultipartFile file, String caption, String tags, String category) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File ảnh không được để trống");
         }
@@ -81,8 +94,20 @@ public class ImageService {
         if (contentType == null || !contentType.toLowerCase().startsWith("image/")) {
             throw new IllegalArgumentException("File upload phải là ảnh");
         }
-        if ((caption == null || caption.isBlank()) && (tags == null || tags.isBlank())) {
-            throw new IllegalArgumentException("Cần nhập caption hoặc tags để hệ thống tìm kiếm ảnh");
+        if (caption == null || caption.isBlank()) {
+            throw new IllegalArgumentException("Mô tả ảnh không được để trống");
+        }
+        if (caption.trim().length() < MIN_CAPTION_LENGTH) {
+            throw new IllegalArgumentException("Mô tả ảnh cần có ít nhất " + MIN_CAPTION_LENGTH + " ký tự");
+        }
+        if (tags == null || tags.isBlank()) {
+            throw new IllegalArgumentException("Từ khóa ảnh không được để trống");
+        }
+        if (category == null || category.isBlank()) {
+            throw new IllegalArgumentException("Category ảnh không được để trống");
+        }
+        if (!ALLOWED_CATEGORIES.contains(category.trim())) {
+            throw new IllegalArgumentException("Category ảnh không hợp lệ");
         }
     }
 
