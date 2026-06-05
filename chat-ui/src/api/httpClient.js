@@ -1,11 +1,10 @@
 
 const isProduction = import.meta.env.PROD;
 
-// NẾU LÀ PRODUCTION: Dùng thẳng '/api' để Nginx điều phối sang Spring Boot
-// NẾU LÀ DEVELOPMENT: Ưu tiên biến môi trường, không có thì để trống để Vite Proxy (cổng 5173) lo
-const API_BASE_URL = isProduction
-  ? ''
-  : (import.meta.env.VITE_API_BASE_URL || '');
+// Production (Vercel): dùng VITE_API_BASE_URL trỏ tới Cloudflare Tunnel
+// Development: để trống → Vite proxy localhost:8080 xử lý
+// Local Docker (Nginx): để trống → relative URL, Nginx proxy xử lý
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export class ApiError extends Error {
   constructor(message, status) {

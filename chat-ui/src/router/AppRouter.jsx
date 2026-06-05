@@ -10,6 +10,7 @@ export function AppRouter({ auth, chat, documents, isAdmin, onLoginClick }) {
     <Routes>
       <Route element={<AppLayout auth={auth} chat={chat} isAdmin={isAdmin} onLoginClick={onLoginClick} />}>
         <Route index element={<ChatPage chat={chat} token={auth.token} onLogin={onLoginClick} />} />
+        <Route path="chat/:conversationId" element={<ChatPage chat={chat} token={auth.token} onLogin={onLoginClick} />} />
         <Route
           path="admin"
           element={<AdminPage documents={documents} isAdmin={isAdmin} onLogin={onLoginClick} token={auth.token} />}
