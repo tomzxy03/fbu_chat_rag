@@ -345,11 +345,13 @@ public class RagService {
             } catch (JsonProcessingException e) {
                 log.warn("Failed to serialize sources", e);
             }
+            String imagesJson = serializeImages(images);
             Message assistantMsg = Message.builder()
                     .conversation(conversation)
                     .role("assistant")
                     .content(answer)
                     .sources(sourcesJson)
+                    .images(imagesJson)
                     .build();
             messageRepo.save(assistantMsg);
             messageId = assistantMsg.getId();
@@ -556,6 +558,7 @@ public class RagService {
                     .role("assistant")
                     .content(answer)
                     .sources("[]")
+                    .images(serializeImages(images))
                     .build();
             messageRepo.save(assistantMsg);
             messageId = assistantMsg.getId();
@@ -925,5 +928,40 @@ public class RagService {
         }
 
         return String.join("\n\n---\n\n", contextParts);
+    }
+
+    /** Serialize list of ImageInfo → JSON string để lưu vào DB. Trả về "[]" nếu lỗi. */
+    private String serializeImages(List<ChatResponse.ImageInfo> images) {
+        if (images == null || images.isEmpty()) return "[]";
+        try {
+            return objectMapper.writeValueAsString(images);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize images", e);
+            return "[]";
+        }
+    }
+
+    /** Deserialize JSON string từ DB → list of ImageInfo. Trả về empty list nếu null/lỗi. */
+    public List<ChatResponse.ImageInfo> deserializeImages(String imagesJson) {
+        if (imagesJson == null || imagesJson.isBlank() || imagesJson.equals("[]")) return List.of();
+        try {
+            return objectMapper.readValue(imagesJson,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, ChatResponse.ImageInfo.class));
+        } catch (Exception e) {
+            log.warn("Failed to deserialize images: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** Deserialize JSON string từ DB → list of SourceInfo. */
+    public List<ChatResponse.SourceInfo> deserializeSources(String sourcesJson) {
+        if (sourcesJson == null || sourcesJson.isBlank() || sourcesJson.equals("[]")) return List.of();
+        try {
+            return objectMapper.readValue(sourcesJson,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, ChatResponse.SourceInfo.class));
+        } catch (Exception e) {
+            log.warn("Failed to deserialize sources: {}", e.getMessage());
+            return List.of();
+        }
     }
 }

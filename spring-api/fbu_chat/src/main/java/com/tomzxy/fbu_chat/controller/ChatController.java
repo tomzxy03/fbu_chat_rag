@@ -77,6 +77,8 @@ public class ChatController {
                         .role(m.getRole())
                         .content(m.getContent())
                         .createdAt(m.getCreatedAt())
+                        .sources(ragService.deserializeSources(m.getSources()))
+                        .images(ragService.deserializeImages(m.getImages()))
                         .build())
                 .toList();
         return ResponseEntity.ok(history);

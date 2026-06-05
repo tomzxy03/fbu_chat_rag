@@ -36,6 +36,11 @@ public class Message {
     @Column(columnDefinition = "JSONB")
     private String sources;
 
+    /** JSON array của images trả về từ image search (lưu dạng JSONB, nullable) */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "JSONB")
+    private String images;
+
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 

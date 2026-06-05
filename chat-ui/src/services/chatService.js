@@ -7,7 +7,13 @@ export async function getConversations(token, onUnauthorized) {
 
 export async function getConversationMessages(conversationId, token, onUnauthorized) {
   const data = await chatRepository.fetchConversationMessages(conversationId, token, onUnauthorized);
-  return Array.isArray(data) ? data : [];
+  if (!Array.isArray(data)) return [];
+  // Normalize: đảm bảo sources và images luôn là array (tránh null khi reload)
+  return data.map((msg) => ({
+    ...msg,
+    sources: Array.isArray(msg.sources) ? msg.sources : [],
+    images: Array.isArray(msg.images) ? msg.images : [],
+  }));
 }
 
 export async function askQuestion({ query, conversationId, history, token, onUnauthorized }) {
