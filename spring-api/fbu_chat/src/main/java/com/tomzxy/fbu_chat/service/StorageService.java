@@ -67,7 +67,7 @@ public class StorageService {
 
             s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
             
-            return String.format("%s/%s/%s", externalUrl, bucketName, objectKey);
+            return String.format("/minio/%s/%s", bucketName, objectKey);
         } catch (IOException e) {
             log.error("Failed to upload file to MinIO S3", e);
             throw new RuntimeException("Lỗi trong quá trình lưu trữ file hình ảnh.");
