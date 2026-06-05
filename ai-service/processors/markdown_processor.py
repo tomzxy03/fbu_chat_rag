@@ -57,7 +57,9 @@ class MarkdownProcessor(BaseProcessor):
                     "title": meta["title"],
                     "year": meta["year"],
                     "docType": meta["type"],
-                    "sourceFile": meta["source"],
+                    # sourceFile phải là tên file .md đang ingest (để idempotency/delete đúng)
+                    # meta["source"] là tên tài liệu gốc (PDF ref), chỉ dùng để display
+                    "sourceFile": filename,
                 })
                 chunk_idx += 1
 

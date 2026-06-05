@@ -39,15 +39,16 @@ import java.util.stream.Collectors;
 @SuppressWarnings("unchecked")
 public class RagService {
 
-    private static final double SIMILARITY_THRESHOLD = 0.65;
+    private static final double SIMILARITY_THRESHOLD = 0.70;
     private static final double IMAGE_SIMILARITY_THRESHOLD = 0.70;
     /**
-     * Cosine distance (0=identical, 2=opposite). 0.35 ≈ similarity 0.65. Applied to
-     * hybridSearch vector CTE.
+     * Cosine distance threshold cho hybrid search vector CTE.
+     * 0.40 ≈ similarity 0.60 — nới hơn để tăng recall trước khi RRF re-rank.
      */
-    private static final double HYBRID_VECTOR_THRESHOLD = 0.35;
+    private static final double HYBRID_VECTOR_THRESHOLD = 0.40;
 
-    private static final int DEFAULT_TOP_K = 5;
+    // Sau dedup parent: topK=8 child → thường còn 4-6 unique parent blocks gửi LLM
+    private static final int DEFAULT_TOP_K = 8;
     private static final int IMAGE_TOP_K = 3;
 
     private static final int HISTORY_WINDOW = 4;
@@ -148,7 +149,9 @@ public class RagService {
         }
 
         int topK = request.getTopK() != null ? request.getTopK() : DEFAULT_TOP_K;
-        int candidateK = topK * 3;
+        // candidateK lớn hơn để RRF có nhiều candidate re-rank trước khi chọn topK
+        // Đặc biệt quan trọng với Parent-Child: nhiều child cùng parent bị dedup → cần dư candidate
+        int candidateK = topK * 5;
 
         String[] tsQueries = tsQueryBuilder.buildSmart(request.getQuery());
         String andQuery = tsQueries[0];
@@ -406,8 +409,8 @@ public class RagService {
     private boolean isFbuInformationQuery(String query) {
         String classifierPrompt = "Phân loại câu hỏi của người dùng cho chatbot FBU.\n"
                 + "Trả về đúng một nhãn:\n"
-                + "- FBU_INFO: nếu câu hỏi cần tra cứu thông tin/quy định/tài liệu nội bộ của Đại học Tài chính - Ngân hàng Hà Nội (FBU), ví dụ học phí, lịch học, lịch thi, học bổng, tuyển sinh, quy chế, ngành học.\n"
-                + "- GENERAL_CHAT: nếu là chào hỏi, cảm ơn, tạm biệt, hỏi bạn là ai, trò chuyện xã giao, câu đùa, hoặc câu không cần tra cứu tài liệu FBU. Chấp nhận lỗi gõ phím/viết sai chính tả như 'xin chafo'.\n"
+                + "- FBU_INFO: nếu câu hỏi cần tra cứu thông tin/quy định/tài liệu nội bộ của Đại học Tài chính - Ngân hàng Hà Nội (FBU), ví dụ học phí, lịch học, lịch thi, học bổng, tuyển sinh, quy chế, ngành học, cơ sở vật chất, giới thiệu trường, tác giả/người tạo/người phát triển hệ thống chatbot này, thông tin về dự án.\n"
+                + "- GENERAL_CHAT: nếu là chào hỏi, cảm ơn, tạm biệt, hỏi chatbot bạn là AI gì, trò chuyện xã giao, câu đùa, hoặc câu không cần tra cứu tài liệu FBU. Chấp nhận lỗi gõ phím/viết sai chính tả như 'xin chafo'.\n"
                 + "Chỉ trả về FBU_INFO hoặc GENERAL_CHAT. Không giải thích.";
 
         List<Map<String, Object>> messages = new ArrayList<>();

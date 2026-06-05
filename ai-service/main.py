@@ -76,6 +76,10 @@ async def chunk_file(file: UploadFile = File(...)):
 
     # MarkdownProcessor trả về list[dict], các processor khác trả về list[str]
     if chunks and isinstance(chunks[0], dict):
+        # Luôn override sourceFile bằng tên file gốc từ upload request
+        # (processor nhận temp path nên basename sẽ là tên temp)
+        for chunk in chunks:
+            chunk["sourceFile"] = filename
         return chunks
     # else:
     #     return [
