@@ -37,10 +37,14 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+                // 1. Kích hoạt cấu hình CORS từ corsSource()
                 .cors(cors -> cors.configurationSource(corsSource()))
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // Cực kỳ quan trọng: Cho phép mọi request OPTIONS (Preflight) đi qua tự do
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/health").permitAll()
                         .requestMatchers("/", "/favicon.ico").permitAll()
@@ -52,6 +56,8 @@ public class SecurityConfig {
                         // Admin only: all document operations (GET, POST, DELETE)
                         .requestMatchers("/api/documents/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
+                
+                // 2. Thứ tự chạy các bộ lọc tùy chỉnh của bác
                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -70,6 +76,7 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsSource() {
+        System.out.println(">>> ĐANG NẠP DANH SÁCH DOMAIN CORS: " + allowedOriginsConfig);
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(true);
         // Parse comma-separated origins từ config — tường minh hơn allowedOriginPatterns("*")
