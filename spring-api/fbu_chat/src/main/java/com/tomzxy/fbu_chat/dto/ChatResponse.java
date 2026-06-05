@@ -1,7 +1,9 @@
 package com.tomzxy.fbu_chat.dto;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.List;
 import java.util.UUID;
@@ -18,6 +20,8 @@ public class ChatResponse {
 
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class SourceInfo {
         private String file;
         private Integer year;
@@ -26,6 +30,8 @@ public class ChatResponse {
 
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class ImageInfo {
         private String url;
         private String caption;
