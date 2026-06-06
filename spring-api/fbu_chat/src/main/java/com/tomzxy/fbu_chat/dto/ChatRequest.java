@@ -16,5 +16,5 @@ public class ChatRequest {
 
     private Integer year; // filter theo năm tài liệu
     private String docType; // filter theo loại tài liệu
-    private Integer topK = 5; // số lượng context trả về
+    private Integer topK; // null → RagService dùng DEFAULT_TOP_K
 }

@@ -51,7 +51,7 @@ public class RagService {
     private static final int DEFAULT_TOP_K = 8;
     private static final int IMAGE_TOP_K = 3;
 
-    private static final int HISTORY_WINDOW = 4;
+    private static final int HISTORY_WINDOW = 3; // 3 turns gần nhất — đủ context follow-up, không bị anchor
     private static final int MAX_HISTORY_CONTENT_LENGTH = 4000;
     private static final String GROQ_MODEL = "llama-3.3-70b-versatile";
 
@@ -223,7 +223,6 @@ public class RagService {
         log.info("Final chunks for LLM: {}", topContexts.size());
 
         String contextText = buildContextWithParents(topContexts);
-
         log.info("=== CHUNKS SENT TO LLM ({}) ===", topContexts.size());
         for (int i = 0; i < topContexts.size(); i++) {
             ChunkResult c = topContexts.get(i);
@@ -254,12 +253,11 @@ public class RagService {
                 +
 
                 "# HƯỚNG DẪN XỬ LÝ KHI THIẾU THÔNG TIN (KỊCH BẢN FALLBACK)\n" +
-                "BẠN CHỈ KÍCH HOẠT KỊCH BẢN NÀY KHI: Trong [CONTEXT] trống rỗng HOẶC nội dung [CONTEXT] hoàn toàn không chứa bất kỳ thông tin nào liên quan đến câu hỏi của người dùng.\n"
-                +
+                "BẠN CHỈ KÍCH HOẠT KỊCH BẢN NÀY KHI: [CONTEXT] hoàn toàn trống rỗng HOẶC tất cả nội dung trong [CONTEXT] không liên quan gì đến câu hỏi.\n" +
+                "LƯU Ý QUAN TRỌNG: Nếu [CONTEXT] có chứa BẤT KỲ thông tin nào có thể trả lời câu hỏi — dù là thông tin về quy chế, tác giả, người tạo hệ thống, giới thiệu dự án, hay bất kỳ chủ đề nào khác — bạn PHẢI trả lời dựa trên đó, KHÔNG được dùng [NO_DATA].\n" +
                 "Khi rơi vào kịch bản thiếu thông tin này, bạn PHẢI tuân thủ cấu trúc trả về sau:\n" +
                 "- Bắt đầu câu trả lời bằng Tag chính xác: [NO_DATA]\n" +
-                "- Sau đó, viết một câu thông báo lịch sự, ấm áp rằng hệ thống dữ liệu hiện tại chưa cập nhật thông tin về chủ đề này và mời người dùng gửi phản hồi qua 'Tab Góp ý' hoặc gửi email về support-chatbot@fbu.edu.vn.\n"
-                +
+                "- Sau đó, viết một câu thông báo lịch sự, ấm áp rằng hệ thống dữ liệu hiện tại chưa cập nhật thông tin về chủ đề này và mời người dùng gửi phản hồi qua 'Tab Góp ý' hoặc gửi email về support-chatbot@fbu.edu.vn.\n" +
                 "⚠️ CHÚ Ý: Tuyệt đối không dùng văn mẫu cố định của hệ thống trong prompt này, hãy tự viết câu thông báo một cách tự nhiên.\n\n"
                 +
 
@@ -286,7 +284,13 @@ public class RagService {
             for (Message histMsg : recentHistory.subList(fromIdx, recentHistory.size())) {
                 Map<String, Object> hm = new HashMap<>();
                 hm.put("role", histMsg.getRole());
-                hm.put("content", histMsg.getContent());
+                // Truncate assistant messages trong history để tránh anchor LLM vào context cũ
+                // User messages giữ nguyên để LLM hiểu flow conversation
+                String content = histMsg.getContent();
+                if ("assistant".equals(histMsg.getRole()) && content != null && content.length() > 200) {
+                    content = content.substring(0, 200) + "... [đã rút gọn]";
+                }
+                hm.put("content", content);
                 groqMessages.add(hm);
             }
 
