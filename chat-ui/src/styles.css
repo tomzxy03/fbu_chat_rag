@@ -54,6 +54,36 @@ button {
   min-width: 0;
 }
 
+/* Wrapper bọc toàn bộ content bên phải sidebar */
+.main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Hamburger button — ẩn trên desktop */
+.hamburger-btn {
+  display: none;
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+/* Nút X đóng sidebar — ẩn trên desktop */
+.sidebar-close {
+  display: none;
+}
+
+/* Backdrop overlay khi sidebar mở trên mobile */
+.sidebar-backdrop {
+  display: none;
+}
+
 .sidebar {
   width: 292px;
   flex: 0 0 292px;
@@ -967,23 +997,67 @@ button {
 
   .app-shell {
     min-height: 100vh;
-    height: auto;
-    flex-direction: column;
+    height: 100vh;
+    flex-direction: row; /* giữ row — sidebar là drawer overlay */
+    overflow: hidden;
   }
 
+  /* Sidebar thành fixed drawer trên mobile */
   .sidebar {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    width: 280px;
+    max-width: 85vw;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: var(--shadow-md);
+  }
+
+  .sidebar.sidebar--open {
+    transform: translateX(0);
+  }
+
+  /* Backdrop */
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: rgba(5, 7, 11, 0.55);
+    backdrop-filter: blur(3px);
+  }
+
+  /* Hiện nút đóng và hamburger trên mobile */
+  .sidebar-close,
+  .hamburger-btn {
+    display: grid;
+  }
+
+  .sidebar-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+  }
+
+  /* main-content chiếm toàn màn hình */
+  .main-content {
     width: 100%;
-    flex: none;
-    min-height: auto;
+  }
+
+  /* Thêm padding-top topbar để không bị che bởi hamburger */
+  .topbar {
+    padding-left: 60px; /* chỗ cho hamburger button */
   }
 
   .conversation-list {
-    max-height: 170px;
+    max-height: none; /* full scroll trong drawer */
   }
 
   .chat-main,
   .admin-main {
-    min-height: 640px;
+    min-height: 0;
+    height: 100%;
   }
 
   .admin-grid {

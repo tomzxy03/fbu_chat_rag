@@ -66,7 +66,8 @@ public class StorageService {
                     .build();
 
             s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
-            
+
+            // Dùng externalUrl từ config thay vì hardcode relative path
             String baseUrl = externalUrl.endsWith("/") ? externalUrl.substring(0, externalUrl.length() - 1) : externalUrl;
             return String.format("%s/%s/%s", baseUrl, bucketName, objectKey);
         } catch (IOException e) {
