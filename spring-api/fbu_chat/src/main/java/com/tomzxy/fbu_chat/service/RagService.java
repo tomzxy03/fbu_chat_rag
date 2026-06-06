@@ -66,7 +66,7 @@ public class RagService {
     private final ObjectMapper objectMapper;
     private final TsQueryBuilder tsQueryBuilder;
     private final VietnameseTokenizerService tokenizerService;
-    private final RestTemplate groqRestTemplate = new RestTemplate();
+    private final RestTemplate groqRestTemplate; // injected Bean với timeout 30s
 
     @Value("${groq.api.key:}")
     private String groqApiKey;
@@ -82,7 +82,8 @@ public class RagService {
             StorageService storageService,
             ObjectMapper objectMapper,
             TsQueryBuilder tsQueryBuilder,
-            VietnameseTokenizerService tokenizerService) {
+            VietnameseTokenizerService tokenizerService,
+            @Qualifier("groqRestTemplate") RestTemplate groqRestTemplate) {
         this.aiRestTemplate = aiRestTemplate;
         this.aiBaseUrl = aiBaseUrl;
         this.conversationRepo = conversationRepo;
@@ -94,6 +95,7 @@ public class RagService {
         this.objectMapper = objectMapper;
         this.tsQueryBuilder = tsQueryBuilder;
         this.tokenizerService = tokenizerService;
+        this.groqRestTemplate = groqRestTemplate;
     }
 
     @Transactional
@@ -245,11 +247,13 @@ public class RagService {
                 "# NGUYÊN TẮC CỐT LÕI (TUÂN THỦ TUYỆT ĐỐI)\n" +
                 "1. CHỈ câu trả lời dựa trên thông tin có trong [CONTEXT]. Tuyệt đối không tự suy diễn, bịa đặt hoặc dùng kiến thức chung trên Internet để đoán quy định của FBU.\n"
                 +
-                "2. Trả lời bằng tiếng Việt lịch sự, truyền cảm hứng, ngắn gọn nhưng đầy đủ ý. Sử dụng các dấu gạch đầu dòng rõ ràng để phân tách các quy trình, điều khoản.\n"
+                "2. Trả lời ĐẦY ĐỦ — bao gồm TẤT CẢ thông tin liên quan có trong [CONTEXT]. Nếu CONTEXT có danh sách, bảng biểu, nhiều mục → trình bày đúng cấu trúc đó, KHÔNG được bỏ sót hoặc tóm tắt.\n"
                 +
-                "3. Quản lý lịch sử hội thoại: Đọc kỹ các câu trả lời trước đó để KHÔNG lặp lại thông tin cũ. Chỉ tập trung bổ sung thông tin mới đáp ứng đúng câu hỏi tiếp diễn.\n\n"
+                "3. Trả lời bằng tiếng Việt lịch sự, truyền cảm hứng, ngắn gọn nhưng đầy đủ ý. Sử dụng các dấu gạch đầu dòng rõ ràng để phân tách các quy trình, điều khoản.\n"
                 +
-                "4. Nếu câu hỏi yêu cầu liệt kê bộ môn/học phần, hãy liệt kê đầy đủ tất cả bộ môn và học phần liên quan xuất hiện trong [CONTEXT].\n\n"
+                "4. Quản lý lịch sử hội thoại: Đọc kỹ các câu trả lời trước đó để KHÔNG lặp lại thông tin cũ. Chỉ tập trung bổ sung thông tin mới đáp ứng đúng câu hỏi tiếp diễn.\n\n"
+                +
+                "5. Nếu câu hỏi yêu cầu liệt kê bộ môn/học phần, hãy liệt kê đầy đủ tất cả bộ môn và học phần liên quan xuất hiện trong [CONTEXT].\n\n"
                 +
 
                 "# HƯỚNG DẪN XỬ LÝ KHI THIẾU THÔNG TIN (KỊCH BẢN FALLBACK)\n" +
@@ -322,7 +326,7 @@ public class RagService {
         groqPayload.put("model", GROQ_MODEL);
         groqPayload.put("messages", groqMessages);
         groqPayload.put("temperature", 0.3);
-        groqPayload.put("max_tokens", 1024);
+        groqPayload.put("max_tokens", 2048);
 
         String answer = callGroq(groqPayload);
         boolean noDataAnswer = isNoDataAnswer(answer);

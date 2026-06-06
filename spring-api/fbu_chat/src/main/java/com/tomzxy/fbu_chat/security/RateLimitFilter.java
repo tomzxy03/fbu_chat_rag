@@ -34,7 +34,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final int ANONYMOUS_LIMIT = 10;
     private static final int AUTHENTICATED_LIMIT = 30;
+    private static final int REGISTER_LIMIT = 5; // 5 lần đăng ký/giờ/IP — chống spam
     private static final Duration WINDOW = Duration.ofMinutes(1);
+    private static final Duration REGISTER_WINDOW = Duration.ofHours(1);
 
     private final JwtUtil jwtUtil;
 
@@ -46,36 +48,63 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain chain) throws ServletException, IOException {
 
-        // Chỉ rate-limit POST /api/chat
-        if (!"POST".equals(request.getMethod()) || !"/api/chat".equals(request.getRequestURI())) {
+        String method = request.getMethod();
+        String uri = request.getRequestURI();
+
+        // Rate limit cho POST /api/chat (theo user/IP)
+        if ("POST".equals(method) && "/api/chat".equals(uri)) {
+            String clientKey = resolveClientKey(request);
+            boolean isAuthenticated = clientKey.startsWith("user:");
+            Bucket bucket = buckets.computeIfAbsent(clientKey, k -> buildBucket(isAuthenticated));
+
+            ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+            if (!probe.isConsumed()) {
+                long waitSeconds = Math.max(1, probe.getNanosToWaitForRefill() / 1_000_000_000);
+                int limit = isAuthenticated ? AUTHENTICATED_LIMIT : ANONYMOUS_LIMIT;
+                String message = String.format(
+                        "Bạn đã gửi quá nhiều tin nhắn (%d/%d phút). Vui lòng đợi %d giây trước khi gửi tiếp.",
+                        limit, 1, waitSeconds);
+                log.warn("Chat rate limit exceeded for key={}, waitSeconds={}", clientKey, waitSeconds);
+                writeRateLimitResponse(response, message);
+                return;
+            }
+
             chain.doFilter(request, response);
             return;
         }
 
-        String clientKey = resolveClientKey(request);
-        boolean isAuthenticated = clientKey.startsWith("user:");
-        Bucket bucket = buckets.computeIfAbsent(clientKey, k -> buildBucket(isAuthenticated));
+        // Rate limit cho POST /api/auth/register (5 lần/giờ/IP — chống spam tài khoản)
+        if ("POST".equals(method) && "/api/auth/register".equals(uri)) {
+            String ip = request.getRemoteAddr();
+            String registerKey = "register:" + ip;
+            Bucket bucket = buckets.computeIfAbsent(registerKey, k -> buildRegisterBucket());
 
-        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
-        if (probe.isConsumed()) {
+            ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+            if (!probe.isConsumed()) {
+                long waitMinutes = Math.max(1, probe.getNanosToWaitForRefill() / 60_000_000_000L);
+                String message = String.format(
+                        "Quá nhiều yêu cầu đăng ký từ địa chỉ này. Vui lòng thử lại sau %d phút.",
+                        waitMinutes);
+                log.warn("Register rate limit exceeded for ip={}", ip);
+                writeRateLimitResponse(response, message);
+                return;
+            }
+
             chain.doFilter(request, response);
             return;
         }
 
-        // Vượt giới hạn — trả 429
-        long waitSeconds = Math.max(1, probe.getNanosToWaitForRefill() / 1_000_000_000);
-        int limit = isAuthenticated ? AUTHENTICATED_LIMIT : ANONYMOUS_LIMIT;
-        String message = String.format(
-                "Bạn đã gửi quá nhiều tin nhắn (%d/%d phút). Vui lòng đợi %d giây trước khi gửi tiếp.",
-                limit, 1, waitSeconds);
+        chain.doFilter(request, response);
+    }
 
-        log.warn("Rate limit exceeded for key={}, waitSeconds={}", clientKey, waitSeconds);
-
+    private void writeRateLimitResponse(HttpServletResponse response, String message) throws IOException {
         response.setStatus(429);
         response.setContentType("application/json;charset=UTF-8");
+        // Escape quotes trong message để tránh JSON injection
+        String safeMessage = message.replace("\"", "'");
         response.getWriter().write(String.format(
                 "{\"status\":429,\"error\":\"Too Many Requests\",\"message\":\"%s\"}",
-                message));
+                safeMessage));
     }
 
     /**
@@ -105,6 +134,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
         Bandwidth limit = Bandwidth.builder()
                 .capacity(capacity)
                 .refillIntervally(capacity, WINDOW)
+                .build();
+        return Bucket.builder().addLimit(limit).build();
+    }
+
+    private Bucket buildRegisterBucket() {
+        Bandwidth limit = Bandwidth.builder()
+                .capacity(REGISTER_LIMIT)
+                .refillIntervally(REGISTER_LIMIT, REGISTER_WINDOW)
                 .build();
         return Bucket.builder().addLimit(limit).build();
     }
