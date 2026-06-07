@@ -469,19 +469,14 @@ public class RagService {
             return new QueryClassification(true, null);
         }
     }
-
-    // Giữ lại các method cũ dưới dạng wrapper để không phá vỡ logic gọi hiện tại
     private boolean isFbuInformationQuery(String query) {
-        // Không dùng nữa — logic đã chuyển sang classifyQuery()
-        // Giữ lại để tránh compile error nếu còn reference
         return classifyQuery(query).isFbuInfo();
     }
 
     private String extractQuerySlots(String query) {
-        // Không dùng nữa — logic đã chuyển sang classifyQuery()
         return classifyQuery(query).docType();
     }
-    }
+    
 
     private ChatResponse buildConversationalChatResponse(ChatRequest request, Conversation conversation) {
         List<Map<String, Object>> groqMessages = new ArrayList<>();

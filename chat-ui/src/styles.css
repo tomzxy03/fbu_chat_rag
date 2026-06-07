@@ -63,9 +63,9 @@ button {
   position: relative;
 }
 
-/* Hamburger button — ẩn trên desktop */
+/* Hamburger button — ẩn trên desktop, hiện trên mobile */
 .hamburger-btn {
-  display: none;
+  display: none !important;
   position: absolute;
   top: 16px;
   right: 16px;
@@ -74,9 +74,9 @@ button {
   background: var(--bg-secondary);
 }
 
-/* Nút X đóng sidebar — ẩn trên desktop */
+/* Nút X đóng sidebar — ẩn trên desktop, hiện trên mobile */
 .sidebar-close {
-  display: none;
+  display: none !important;
 }
 
 /* Backdrop overlay khi sidebar mở trên mobile */
@@ -1031,7 +1031,7 @@ button {
   /* Hiện nút đóng và hamburger trên mobile */
   .sidebar-close,
   .hamburger-btn {
-    display: grid;
+    display: grid !important;
   }
 
   .sidebar-close {
