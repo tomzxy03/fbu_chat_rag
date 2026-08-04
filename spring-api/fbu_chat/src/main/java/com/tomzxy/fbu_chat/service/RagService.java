@@ -261,7 +261,7 @@ public class RagService {
                 "LƯU Ý QUAN TRỌNG: Nếu [CONTEXT] có chứa BẤT KỲ thông tin nào có thể trả lời câu hỏi — dù là thông tin về quy chế, tác giả, người tạo hệ thống, giới thiệu dự án, hay bất kỳ chủ đề nào khác — bạn PHẢI trả lời dựa trên đó, KHÔNG được dùng [NO_DATA].\n" +
                 "Khi rơi vào kịch bản thiếu thông tin này, bạn PHẢI tuân thủ cấu trúc trả về sau:\n" +
                 "- Bắt đầu câu trả lời bằng Tag chính xác: [NO_DATA]\n" +
-                "- Sau đó, viết một câu thông báo lịch sự, ấm áp rằng hệ thống dữ liệu hiện tại chưa cập nhật thông tin về chủ đề này và mời người dùng gửi phản hồi qua 'Tab Góp ý' hoặc gửi tin nhắn qua messages: https://web.facebook.com/trinh.at.293350\n" +
+                "- Sau đó, viết một câu thông báo lịch sự, ấm áp rằng hệ thống dữ liệu hiện tại chưa cập nhật thông tin về chủ đề này và mời người dùng gửi phản hồi qua 'Tab Góp ý' hoặc gửi email về trinhdat24102003@gmail.com.\n" +
                 "⚠️ CHÚ Ý: Tuyệt đối không dùng văn mẫu cố định của hệ thống trong prompt này, hãy tự viết câu thông báo một cách tự nhiên.\n\n"
                 +
 
@@ -476,7 +476,6 @@ public class RagService {
     private String extractQuerySlots(String query) {
         return classifyQuery(query).docType();
     }
-    
 
     private ChatResponse buildConversationalChatResponse(ChatRequest request, Conversation conversation) {
         List<Map<String, Object>> groqMessages = new ArrayList<>();
