@@ -1,7 +1,6 @@
 package com.tomzxy.fbu_chat.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tomzxy.fbu_chat.dto.ChatRequest;
 import com.tomzxy.fbu_chat.dto.ChatResponse;
@@ -12,210 +11,164 @@ import com.tomzxy.fbu_chat.dto.EmbeddingResponse;
 import com.tomzxy.fbu_chat.dto.ImageResult;
 import com.tomzxy.fbu_chat.entity.Conversation;
 import com.tomzxy.fbu_chat.entity.Message;
-import com.tomzxy.fbu_chat.entity.ParentChunk;
 import com.tomzxy.fbu_chat.repository.ConversationRepository;
 import com.tomzxy.fbu_chat.repository.DocumentChunkRepository;
 import com.tomzxy.fbu_chat.repository.DocumentImageRepository;
 import com.tomzxy.fbu_chat.repository.MessageRepository;
-import com.tomzxy.fbu_chat.repository.ParentChunkRepository;
-import com.tomzxy.fbu_chat.util.TsQueryBuilder;
+import com.tomzxy.fbu_chat.service.QueryClassifierService.QueryClassification;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
-import java.text.Normalizer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Orchestrator chính của RAG pipeline.
+ * Ủy quyền các trách nhiệm cụ thể:
+ * - GroqChatClient     : HTTP call đến Groq API
+ * - QueryClassifierService : phân loại intent + slot-fill docType
+ * - ContextRetrievalService: hybrid search + filter + build context string
+ */
 @Slf4j
 @Service
 @SuppressWarnings("unchecked")
 public class RagService {
 
-    private static final double SIMILARITY_THRESHOLD = 0.70;
     private static final double IMAGE_SIMILARITY_THRESHOLD = 0.70;
-    /**
-     * Cosine distance threshold cho hybrid search vector CTE.
-     * 0.40 ≈ similarity 0.60 — nới hơn để tăng recall trước khi RRF re-rank.
-     */
-    private static final double HYBRID_VECTOR_THRESHOLD = 0.40;
-
-    // Sau dedup parent: topK=8 child → thường còn 4-6 unique parent blocks gửi LLM
-    private static final int DEFAULT_TOP_K = 8;
     private static final int IMAGE_TOP_K = 3;
-
-    private static final int HISTORY_WINDOW = 3; // 3 turns gần nhất — đủ context follow-up, không bị anchor
+    private static final int HISTORY_WINDOW = 3;
     private static final int MAX_HISTORY_CONTENT_LENGTH = 4000;
-    private static final String GROQ_MODEL = "llama-3.3-70b-versatile";
 
     private final RestTemplate aiRestTemplate;
     private final String aiBaseUrl;
     private final ConversationRepository conversationRepo;
     private final MessageRepository messageRepo;
-    private final DocumentChunkRepository docRepo;
     private final DocumentImageRepository imageRepo;
-    private final ParentChunkRepository parentChunkRepo;
+    private final DocumentChunkRepository docRepo;
     private final StorageService storageService;
     private final ObjectMapper objectMapper;
-    private final TsQueryBuilder tsQueryBuilder;
     private final VietnameseTokenizerService tokenizerService;
-    private final RestTemplate groqRestTemplate; // injected Bean với timeout 30s
 
-    @Value("${groq.api.key:}")
-    private String groqApiKey;
+    // ── Extracted services ──
+    private final GroqChatClient groqClient;
+    private final QueryClassifierService queryClassifier;
+    private final ContextRetrievalService contextRetrieval;
 
     public RagService(
             RestTemplate aiRestTemplate,
             @Qualifier("aiServiceBaseUrl") String aiBaseUrl,
             ConversationRepository conversationRepo,
             MessageRepository messageRepo,
-            DocumentChunkRepository docRepo,
             DocumentImageRepository imageRepo,
-            ParentChunkRepository parentChunkRepo,
+            DocumentChunkRepository docRepo,
             StorageService storageService,
             ObjectMapper objectMapper,
-            TsQueryBuilder tsQueryBuilder,
             VietnameseTokenizerService tokenizerService,
-            @Qualifier("groqRestTemplate") RestTemplate groqRestTemplate) {
+            GroqChatClient groqClient,
+            QueryClassifierService queryClassifier,
+            ContextRetrievalService contextRetrieval) {
         this.aiRestTemplate = aiRestTemplate;
         this.aiBaseUrl = aiBaseUrl;
         this.conversationRepo = conversationRepo;
         this.messageRepo = messageRepo;
-        this.docRepo = docRepo;
         this.imageRepo = imageRepo;
-        this.parentChunkRepo = parentChunkRepo;
+        this.docRepo = docRepo;
         this.storageService = storageService;
         this.objectMapper = objectMapper;
-        this.tsQueryBuilder = tsQueryBuilder;
         this.tokenizerService = tokenizerService;
-        this.groqRestTemplate = groqRestTemplate;
+        this.groqClient = groqClient;
+        this.queryClassifier = queryClassifier;
+        this.contextRetrieval = contextRetrieval;
     }
 
     @Transactional
     public ChatResponse chat(ChatRequest request, String userId) {
-        Conversation conversation = null;
-        if (userId != null) {
-            if (request.getConversationId() != null) {
-                UUID convId = UUID.fromString(request.getConversationId());
-                conversation = conversationRepo.findByIdAndUserId(convId, userId)
-                        .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException(
-                                "Conversation không tồn tại hoặc bạn không có quyền truy cập"));
-            } else {
-                conversation = createConversation(request.getQuery(), userId);
-            }
-        }
+        Conversation conversation = resolveConversation(request, userId);
 
-        ensureGroqApiKeyConfigured();
+        groqClient.ensureApiKeyConfigured();
 
-        // 1 Groq call thay vì 2 — tiết kiệm ~800ms-1.5s latency
-        QueryClassification classification = classifyQuery(request.getQuery());
+        QueryClassification classification = queryClassifier.classify(request.getQuery());
 
         if (!classification.isFbuInfo()) {
             log.info("Detected non-RAG conversational query. Skipping embedding/search pipeline.");
-            return buildConversationalChatResponse(request, conversation);
+            List<Message> convHistory = conversation != null
+                    ? messageRepo.findByConversationIdOrderByCreatedAtAsc(conversation.getId())
+                    : null;
+            return buildConversationalChatResponse(request, conversation, convHistory);
         }
 
-        // Auto-fill docType từ classification nếu client chưa gửi
         if (request.getDocType() == null && classification.docType() != null) {
             request.setDocType(classification.docType());
             log.info("Slot-filling inferred docType='{}' from query", classification.docType());
         }
 
+        // Load history 1 lần duy nhất cho toàn bộ request — tránh 4 round-trip DB riêng lẻ.
+        // conversationHistory = null khi anonymous (không có conversation DB).
+        List<Message> conversationHistory = conversation != null
+                ? messageRepo.findByConversationIdOrderByCreatedAtAsc(conversation.getId())
+                : null;
+
         String segmentedQuery = tokenizerService.segmentForEmbedding(request.getQuery());
-
         log.info("Encoding query using AI Service...");
-        EmbeddingRequest embReq = new EmbeddingRequest();
-        embReq.setTexts(List.of(segmentedQuery));
-        embReq.setMode("query");
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<EmbeddingRequest> entity = new HttpEntity<>(embReq, headers);
-
-        ResponseEntity<EmbeddingResponse> embResponse = aiRestTemplate.exchange(
-                aiBaseUrl + "/v1/embeddings", HttpMethod.POST, entity, EmbeddingResponse.class);
-
-        if (embResponse.getBody() == null || embResponse.getBody().getEmbeddings().isEmpty()) {
-            throw new RuntimeException("Lỗi sinh Embedding cho câu hỏi");
-        }
-
-        List<Float> queryVector = embResponse.getBody().getEmbeddings().get(0);
+        List<Float> queryVector = getQueryEmbedding(segmentedQuery);
         String vectorStr = "[" + queryVector.stream().map(String::valueOf).collect(Collectors.joining(",")) + "]";
+
         boolean imageIntent = isImageRequest(request.getQuery());
-        List<ChatResponse.ImageInfo> images = imageIntent ? searchImages(vectorStr) : List.of();
+
+        Set<String> shownImageUrls = extractShownImageUrls(conversationHistory);
+        boolean isImageFollowUp = imageIntent && !shownImageUrls.isEmpty()
+                && isFollowUpMoreRequest(request.getQuery());
+
+        List<ChatResponse.ImageInfo> images;
+        if (isImageFollowUp) {
+            String prevCategory = extractPreviousImageCategory(conversationHistory);
+            images = prevCategory != null
+                    ? searchImagesByCategory(vectorStr, prevCategory, shownImageUrls)
+                    : List.of();
+            log.info("Image follow-up — reusing category='{}', excluding {} shown URLs, found {} new",
+                    prevCategory, shownImageUrls.size(), images.size());
+        } else {
+            images = imageIntent ? searchImages(vectorStr, shownImageUrls) : List.of();
+        }
 
         if (imageIntent && isImageOnlyRequest(request.getQuery())) {
             if (!images.isEmpty()) {
-                log.info("Detected image-only query. Returning {} image results without text RAG.", images.size());
+                log.info("Detected image-only query. Returning {} new image results without text RAG.", images.size());
                 return buildImageOnlyChatResponse(request, conversation, images);
             }
-            log.info("Detected image-only query, but no image matched. Returning image fallback.");
-            return buildImageFallbackChatResponse(request, conversation);
+            log.info("Detected image-only query, but no new image matched. Returning image exhausted response.");
+            return buildImageExhaustedChatResponse(request, conversation);
         }
 
-        int topK = request.getTopK() != null ? request.getTopK() : DEFAULT_TOP_K;
-        int candidateK = topK * 5;
-
-        String[] tsQueries = tsQueryBuilder.buildSmart(request.getQuery());
-        String andQuery = tsQueries[0];
-        String orQuery = tsQueries[1];
-
-        log.info("Searching (topK={}, threshold={}, segmentedQuery='{}', AND={}, year={}, docType={})",
-                topK, SIMILARITY_THRESHOLD, segmentedQuery, andQuery,
-                request.getYear(), request.getDocType());
-
-        List<ChunkResult> topContexts = List.of();
-
-        if (andQuery != null) {
-            try {
-                List<ChunkResult> andResults = docRepo.hybridSearch(vectorStr, andQuery, topK, candidateK,
-                        HYBRID_VECTOR_THRESHOLD);
-                topContexts = filterByMetadata(andResults, request);
-                log.info("Pass 1 (AND) after metadata filter: {} results", topContexts.size());
-            } catch (Exception e) {
-                log.warn("Hybrid AND failed: {}", e.getMessage());
-            }
+        Set<UUID> usedParentIds = isFollowUpMoreRequest(request.getQuery())
+                ? extractUsedParentIds(conversationHistory)
+                : Set.of();
+        if (!usedParentIds.isEmpty()) {
+            log.info("Follow-up 'more info' detected — excluding {} used parent chunks", usedParentIds.size());
         }
 
-        if (topContexts.size() < 2 && orQuery != null) {
-            log.info("Pass 1 insufficient, trying OR fallback...");
-            try {
-                List<ChunkResult> orResults = docRepo.hybridSearch(vectorStr, orQuery, topK, candidateK,
-                        HYBRID_VECTOR_THRESHOLD);
-                List<ChunkResult> filteredOr = filterByMetadata(orResults, request);
-                log.info("Pass 2 (OR) after metadata filter: {} results", filteredOr.size());
-
-                if (filteredOr.size() > topContexts.size()) {
-                    topContexts = filteredOr;
-                }
-            } catch (Exception e) {
-                log.warn("Hybrid OR failed: {}", e.getMessage());
-            }
-        }
-
-        if (topContexts.size() < 2) {
-            log.info("Hybrid insufficient, falling back to pure vector...");
-            List<ChunkResult> vectorResults = docRepo.findTopRelatedContexts(vectorStr, topK, SIMILARITY_THRESHOLD);
-            List<ChunkResult> filteredVector = filterByMetadata(vectorResults, request);
-            log.info("Pass 3 (vector) after metadata filter: {} results", filteredVector.size());
-
-            if (filteredVector.size() > topContexts.size()) {
-                topContexts = filteredVector;
-            }
-        }
+        List<ChunkResult> topContexts = contextRetrieval.search(vectorStr, request, usedParentIds);
 
         if (topContexts.isEmpty()) {
             if (imageIntent && !images.isEmpty()) {
-                log.info("No document chunks found, but image intent matched {} images. Returning image-only response.",
-                        images.size());
+                log.info("No document chunks found, image intent matched. Returning image-only response.");
                 return buildImageOnlyChatResponse(request, conversation, images);
             }
             log.info("No reliable document chunks found. Triggering no-data fallback response.");
@@ -223,112 +176,11 @@ public class RagService {
         }
 
         log.info("Final chunks for LLM: {}", topContexts.size());
+        logChunks(topContexts);
 
-        String contextText = buildContextWithParents(topContexts);
-        log.info("=== CHUNKS SENT TO LLM ({}) ===", topContexts.size());
-        for (int i = 0; i < topContexts.size(); i++) {
-            ChunkResult c = topContexts.get(i);
-            log.info("[{}] {} | len={} | preview={}",
-                    i + 1,
-                    c.getSourceFile(),
-                    c.getContent() != null ? c.getContent().length() : 0,
-                    c.getContent() != null
-                            ? c.getContent().substring(0, Math.min(80, c.getContent().length()))
-                                    .replace("\n", " ")
-                            : "NULL");
-        }
-        log.info("================================");
+        String contextText = contextRetrieval.buildContextString(topContexts);
+        String answer = callRagGroq(request, conversation, conversationHistory, contextText);
 
-        String systemPrompt = "# VAI TRÒ VÀ ĐỊNH DANH\n" +
-                "Bạn là Trợ lý AI chuyên nghiệp và thân thiện của Trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). " +
-                "Nhiệm vụ của bạn là hỗ trợ sinh viên và giảng viên tra cứu các quy chế, quy định nội bộ dựa trên dữ liệu [CONTEXT] được cung cấp.\n\n"
-                +
-
-                "# NGUYÊN TẮC CỐT LÕI (TUÂN THỦ TUYỆT ĐỐI)\n" +
-                "1. CHỈ câu trả lời dựa trên thông tin có trong [CONTEXT]. Tuyệt đối không tự suy diễn, bịa đặt hoặc dùng kiến thức chung trên Internet để đoán quy định của FBU.\n"
-                +
-                "2. Trả lời ĐẦY ĐỦ — bao gồm TẤT CẢ thông tin liên quan có trong [CONTEXT]. Nếu CONTEXT có danh sách, bảng biểu, nhiều mục → trình bày đúng cấu trúc đó, KHÔNG được bỏ sót hoặc tóm tắt.\n"
-                +
-                "3. Trả lời bằng tiếng Việt lịch sự, truyền cảm hứng, ngắn gọn nhưng đầy đủ ý. Sử dụng các dấu gạch đầu dòng rõ ràng để phân tách các quy trình, điều khoản.\n"
-                +
-                "4. Quản lý lịch sử hội thoại: Đọc kỹ các câu trả lời trước đó để KHÔNG lặp lại thông tin cũ. Chỉ tập trung bổ sung thông tin mới đáp ứng đúng câu hỏi tiếp diễn.\n\n"
-                +
-                "5. Nếu câu hỏi yêu cầu liệt kê bộ môn/học phần, hãy liệt kê đầy đủ tất cả bộ môn và học phần liên quan xuất hiện trong [CONTEXT].\n\n"
-                +
-
-                "# HƯỚNG DẪN XỬ LÝ KHI THIẾU THÔNG TIN (KỊCH BẢN FALLBACK)\n" +
-                "BẠN CHỈ KÍCH HOẠT KỊCH BẢN NÀY KHI: [CONTEXT] hoàn toàn trống rỗng HOẶC tất cả nội dung trong [CONTEXT] không liên quan gì đến câu hỏi.\n" +
-                "LƯU Ý QUAN TRỌNG: Nếu [CONTEXT] có chứa BẤT KỲ thông tin nào có thể trả lời câu hỏi — dù là thông tin về quy chế, tác giả, người tạo hệ thống, giới thiệu dự án, hay bất kỳ chủ đề nào khác — bạn PHẢI trả lời dựa trên đó, KHÔNG được dùng [NO_DATA].\n" +
-                "Khi rơi vào kịch bản thiếu thông tin này, bạn PHẢI tuân thủ cấu trúc trả về sau:\n" +
-                "- Bắt đầu câu trả lời bằng Tag chính xác: [NO_DATA]\n" +
-                "- Sau đó, viết một câu thông báo lịch sự, ấm áp rằng hệ thống dữ liệu hiện tại chưa cập nhật thông tin về chủ đề này và mời người dùng gửi phản hồi qua 'Tab Góp ý' hoặc gửi email về trinhdat24102003@gmail.com.\n" +
-                "⚠️ CHÚ Ý: Tuyệt đối không dùng văn mẫu cố định của hệ thống trong prompt này, hãy tự viết câu thông báo một cách tự nhiên.\n\n"
-                +
-
-                "# QUY TẮC CẤM ĐỊNH DẠNG NGUỒN\n" +
-                "- Tuyệt đối KHÔNG được tự viết chữ 'Nguồn:' hoặc tự tổng hợp danh sách tên file ở cuối câu trả lời dưới mọi hình thức (Hệ thống đã có bộ lọc tự động xử lý phần này).\n"
-                +
-                "- Bạn chỉ được phép lồng ghép tên văn bản một cách tự nhiên vào câu văn nếu cần làm rõ tính pháp lý (Ví dụ: 'Dựa trên Quyết định số 116, quy trình xác nhận sinh viên gồm...').";
-
-        String userPrompt = "CONTEXT TỪ TÀI LIỆU FBU:\n" + contextText + "\n\n" +
-                "CÂU HỎI HIỆN TẠI: " + request.getQuery() + "\n\n" +
-                "Trả lời (Tuân thủ tuyệt đối quy tắc định dạng nguồn):";
-
-        log.info("Calling Groq LLM Generator...");
-        Map<String, Object> groqMsg1 = new HashMap<>();
-        groqMsg1.put("role", "system");
-        groqMsg1.put("content", systemPrompt);
-
-        List<Map<String, Object>> groqMessages = new java.util.ArrayList<>();
-        groqMessages.add(groqMsg1);
-        if (conversation != null) {
-            List<Message> recentHistory = messageRepo
-                    .findByConversationIdOrderByCreatedAtAsc(conversation.getId());
-            int fromIdx = Math.max(0, recentHistory.size() - HISTORY_WINDOW * 2);
-            for (Message histMsg : recentHistory.subList(fromIdx, recentHistory.size())) {
-                Map<String, Object> hm = new HashMap<>();
-                hm.put("role", histMsg.getRole());
-                // Truncate assistant messages trong history để tránh anchor LLM vào context cũ
-                // User messages giữ nguyên để LLM hiểu flow conversation
-                String content = histMsg.getContent();
-                if ("assistant".equals(histMsg.getRole()) && content != null && content.length() > 200) {
-                    content = content.substring(0, 200) + "... [đã rút gọn]";
-                }
-                hm.put("content", content);
-                groqMessages.add(hm);
-            }
-
-            Message userMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("user")
-                    .content(request.getQuery())
-                    .build();
-            messageRepo.save(userMsg);
-        } else if (request.getHistory() != null && !request.getHistory().isEmpty()) {
-            int fromIdx = Math.max(0, request.getHistory().size() - HISTORY_WINDOW * 2);
-            List<ChatHistoryMessage> clientHistory = request.getHistory()
-                    .subList(fromIdx, request.getHistory().size());
-
-            for (ChatHistoryMessage histMsg : clientHistory) {
-                if (histMsg == null) {
-                    continue;
-                }
-                addHistoryMessage(groqMessages, histMsg.getRole(), histMsg.getContent());
-            }
-        }
-
-        Map<String, Object> groqMsg2 = new HashMap<>();
-        groqMsg2.put("role", "user");
-        groqMsg2.put("content", userPrompt);
-        groqMessages.add(groqMsg2);
-
-        Map<String, Object> groqPayload = new HashMap<>();
-        groqPayload.put("model", GROQ_MODEL);
-        groqPayload.put("messages", groqMessages);
-        groqPayload.put("temperature", 0.3);
-        groqPayload.put("max_tokens", 2048);
-
-        String answer = callGroq(groqPayload);
         boolean noDataAnswer = isNoDataAnswer(answer);
         if (noDataAnswer) {
             answer = stripNoDataMarker(answer);
@@ -336,443 +188,22 @@ public class RagService {
             images = List.of();
         }
 
-        List<Map<String, Object>> sources = noDataAnswer
-                ? List.of()
-                : topContexts.stream()
-                .filter(distinctBySourceFile())
-                .map(c -> {
-                    Map<String, Object> s = new HashMap<>();
-                    s.put("file", c.getSourceFile());
-                    s.put("year", c.getYear());
-                    s.put("doc_type", c.getDocType());
-                    return s;
-                }).collect(Collectors.toList());
+        List<Map<String, Object>> sources = noDataAnswer ? List.of() : buildSources(topContexts);
 
-        UUID messageId = null;
-        if (conversation != null) {
-            String sourcesJson = "";
-            try {
-                sourcesJson = objectMapper.writeValueAsString(sources);
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to serialize sources", e);
-            }
-            String imagesJson = serializeImages(images);
-            Message assistantMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("assistant")
-                    .content(answer)
-                    .sources(sourcesJson)
-                    .images(imagesJson)
-                    .build();
-            messageRepo.save(assistantMsg);
-            messageId = assistantMsg.getId();
-
-            conversationRepo.save(conversation);
-        }
-
-        List<ChatResponse.SourceInfo> sourceInfos = sources.stream()
-                .collect(Collectors.toMap(
-                        s -> (String) s.get("file"),
-                        s -> ChatResponse.SourceInfo.builder()
-                                .file((String) s.get("file"))
-                                .year(s.get("year") instanceof Integer ? (Integer) s.get("year") : null)
-                                .docType((String) s.get("doc_type"))
-                                .build(),
-                        (existing, duplicate) -> existing))
-                .values()
-                .stream()
-                .toList();
+        UUID messageId = persistAssistantMessage(conversation, answer, sources, images);
 
         return ChatResponse.builder()
                 .conversationId(conversation != null ? conversation.getId() : null)
                 .messageId(messageId)
                 .query(request.getQuery())
                 .answer(answer)
-                .sources(sourceInfos)
+                .sources(toSourceInfos(sources))
                 .images(images)
                 .build();
     }
 
     public List<Message> getHistory(UUID conversationId) {
         return messageRepo.findByConversationIdOrderByCreatedAtAsc(conversationId);
-    }
-
-    private void addHistoryMessage(List<Map<String, Object>> groqMessages, String role, String content) {
-        if (!isAllowedHistoryRole(role) || content == null || content.isBlank()) {
-            return;
-        }
-
-        Map<String, Object> hm = new HashMap<>();
-        hm.put("role", role);
-        hm.put("content", content.length() > MAX_HISTORY_CONTENT_LENGTH
-                ? content.substring(0, MAX_HISTORY_CONTENT_LENGTH)
-                : content);
-        groqMessages.add(hm);
-    }
-
-    private boolean isAllowedHistoryRole(String role) {
-        return "user".equals(role) || "assistant".equals(role);
-    }
-
-    /**
-     * Phân loại query trong 1 Groq call duy nhất thay vì 2 calls tuần tự.
-     * Trả về record với intent (GENERAL_CHAT / FBU_INFO) và docType (có thể null).
-     * Tiết kiệm ~800ms–1.5s latency mỗi request so với 2 calls riêng.
-     */
-    private record QueryClassification(boolean isFbuInfo, String docType) {}
-
-    private QueryClassification classifyQuery(String query) {
-        String classifierPrompt = "Phân tích câu hỏi của người dùng cho chatbot FBU và trả về JSON.\n\n"
-                + "Trường 'intent':\n"
-                + "- \"FBU_INFO\": câu hỏi cần tra cứu tài liệu nội bộ FBU (học phí, lịch thi, học bổng, quy chế, ngành học, cơ sở vật chất, giới thiệu trường, tác giả/người tạo chatbot, thông tin dự án)\n"
-                + "- \"GENERAL_CHAT\": chào hỏi, cảm ơn, tạm biệt, hỏi AI là gì, trò chuyện xã giao, câu đùa\n\n"
-                + "Trường 'docType' (chỉ điền khi intent=FBU_INFO, ngược lại để null):\n"
-                + "- \"introduction\": giới thiệu trường, khoa, chuyên ngành, lịch sử, cơ sở vật chất\n"
-                + "- \"department\": bộ môn, khoa/viện, học phần, môn học\n"
-                + "- \"regulation\": quy chế, quy định, học phí, học bổng, thi cử, tốt nghiệp\n"
-                + "- null: câu hỏi chung hoặc không thuộc nhóm trên\n\n"
-                + "Chỉ trả về JSON hợp lệ, không giải thích. Ví dụ: {\"intent\":\"FBU_INFO\",\"docType\":\"regulation\"}";
-
-        List<Map<String, Object>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", classifierPrompt));
-        messages.add(Map.of("role", "user", "content", query));
-
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("model", GROQ_MODEL);
-        payload.put("messages", messages);
-        payload.put("temperature", 0);
-        payload.put("max_tokens", 32);
-
-        try {
-            String raw = callGroq(payload).trim();
-            // Strip markdown code block nếu LLM wrap trong ```json ... ```
-            raw = raw.replaceAll("(?s)```(?:json)?\\s*(\\{.*?\\})\\s*```", "$1").trim();
-
-            JsonNode node = objectMapper.readTree(raw);
-            String intent = node.path("intent").asText("FBU_INFO").toUpperCase(Locale.ROOT);
-            boolean isFbuInfo = !"GENERAL_CHAT".equals(intent);
-
-            String docType = null;
-            JsonNode docTypeNode = node.path("docType");
-            if (!docTypeNode.isNull() && !docTypeNode.isMissingNode()) {
-                String dt = docTypeNode.asText("").toLowerCase(Locale.ROOT);
-                if (dt.contains("introduction") || dt.contains("department") || dt.contains("regulation")) {
-                    docType = dt;
-                }
-            }
-
-            log.info("Query classified: intent={}, docType={}", intent, docType);
-            return new QueryClassification(isFbuInfo, docType);
-
-        } catch (Exception e) {
-            log.warn("Query classifier failed ({}), falling back to FBU_INFO with no docType", e.getMessage());
-            return new QueryClassification(true, null);
-        }
-    }
-    private boolean isFbuInformationQuery(String query) {
-        return classifyQuery(query).isFbuInfo();
-    }
-
-    private String extractQuerySlots(String query) {
-        return classifyQuery(query).docType();
-    }
-
-    private ChatResponse buildConversationalChatResponse(ChatRequest request, Conversation conversation) {
-        List<Map<String, Object>> groqMessages = new ArrayList<>();
-        groqMessages.add(Map.of(
-                "role", "system",
-                "content", "Bạn là trợ lý AI thân thiện của trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). "
-                        + "Trả lời các câu xã giao/tán gẫu bằng tiếng Việt, tự nhiên, ngắn gọn. "
-                        + "Nếu người dùng hỏi thông tin chính thức cần tra cứu tài liệu FBU, hãy gợi ý họ đặt câu hỏi cụ thể để hệ thống tra cứu nguồn nội bộ."));
-
-        if (conversation != null) {
-            List<Message> recentHistory = messageRepo
-                    .findByConversationIdOrderByCreatedAtAsc(conversation.getId());
-            int fromIdx = Math.max(0, recentHistory.size() - HISTORY_WINDOW * 2);
-            for (Message histMsg : recentHistory.subList(fromIdx, recentHistory.size())) {
-                addHistoryMessage(groqMessages, histMsg.getRole(), histMsg.getContent());
-            }
-        } else if (request.getHistory() != null && !request.getHistory().isEmpty()) {
-            int fromIdx = Math.max(0, request.getHistory().size() - HISTORY_WINDOW * 2);
-            List<ChatHistoryMessage> clientHistory = request.getHistory()
-                    .subList(fromIdx, request.getHistory().size());
-
-            for (ChatHistoryMessage histMsg : clientHistory) {
-                if (histMsg == null) {
-                    continue;
-                }
-                addHistoryMessage(groqMessages, histMsg.getRole(), histMsg.getContent());
-            }
-        }
-
-        groqMessages.add(Map.of("role", "user", "content", request.getQuery()));
-
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("model", GROQ_MODEL);
-        payload.put("messages", groqMessages);
-        payload.put("temperature", 0.4);
-        payload.put("max_tokens", 256);
-
-        String answer = callGroq(payload);
-        UUID messageId = null;
-        if (conversation != null) {
-            Message userMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("user")
-                    .content(request.getQuery())
-                    .build();
-            messageRepo.save(userMsg);
-
-            Message assistantMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("assistant")
-                    .content(answer)
-                    .sources("[]")
-                    .build();
-            messageRepo.save(assistantMsg);
-            messageId = assistantMsg.getId();
-
-            conversationRepo.save(conversation);
-        }
-
-        return ChatResponse.builder()
-                .conversationId(conversation != null ? conversation.getId() : null)
-                .messageId(messageId)
-                .query(request.getQuery())
-                .answer(answer)
-                .sources(List.of())
-                .images(List.of())
-                .build();
-    }
-
-    private ChatResponse buildImageOnlyChatResponse(
-            ChatRequest request,
-            Conversation conversation,
-            List<ChatResponse.ImageInfo> images) {
-        String answer = "Mình tìm thấy một số hình ảnh minh họa phù hợp với câu hỏi của bạn. "
-                + "Bạn có thể xem các ảnh được đính kèm bên dưới.";
-
-        UUID messageId = null;
-        if (conversation != null) {
-            Message userMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("user")
-                    .content(request.getQuery())
-                    .build();
-            messageRepo.save(userMsg);
-
-            Message assistantMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("assistant")
-                    .content(answer)
-                    .sources("[]")
-                    .images(serializeImages(images))
-                    .build();
-            messageRepo.save(assistantMsg);
-            messageId = assistantMsg.getId();
-
-            conversationRepo.save(conversation);
-        }
-
-        return ChatResponse.builder()
-                .conversationId(conversation != null ? conversation.getId() : null)
-                .messageId(messageId)
-                .query(request.getQuery())
-                .answer(answer)
-                .sources(List.of())
-                .images(images)
-                .build();
-    }
-
-    private ChatResponse buildImageFallbackChatResponse(ChatRequest request, Conversation conversation) {
-        String answer = "Hiện tại hệ thống chưa tìm thấy hình ảnh phù hợp với yêu cầu của bạn.";
-
-        UUID messageId = null;
-        if (conversation != null) {
-            Message userMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("user")
-                    .content(request.getQuery())
-                    .build();
-            messageRepo.save(userMsg);
-
-            Message assistantMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("assistant")
-                    .content(answer)
-                    .sources("[]")
-                    .build();
-            messageRepo.save(assistantMsg);
-            messageId = assistantMsg.getId();
-
-            conversationRepo.save(conversation);
-        }
-
-        return ChatResponse.builder()
-                .conversationId(conversation != null ? conversation.getId() : null)
-                .messageId(messageId)
-                .query(request.getQuery())
-                .answer(answer)
-                .sources(List.of())
-                .images(List.of())
-                .build();
-    }
-
-    private ChatResponse buildFallbackChatResponse(ChatRequest request, Conversation conversation) {
-        String answer = "Hiện tại hệ thống dữ liệu của mình chưa có thông tin chính thức về câu hỏi: \""
-                + request.getQuery()
-                + "\".\n\nNếu bạn biết hoặc có tài liệu chính thức về nội dung này, bạn có thể gửi phản hồi qua Phòng Công tác Sinh viên hoặc email support-chatbot@fbu.edu.vn để hệ thống được cập nhật đầy đủ hơn. Cảm ơn bạn đã góp ý.";
-
-        UUID messageId = null;
-        if (conversation != null) {
-            Message userMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("user")
-                    .content(request.getQuery())
-                    .build();
-            messageRepo.save(userMsg);
-
-            Message assistantMsg = Message.builder()
-                    .conversation(conversation)
-                    .role("assistant")
-                    .content(answer)
-                    .sources("[]")
-                    .build();
-            messageRepo.save(assistantMsg);
-            messageId = assistantMsg.getId();
-
-            conversationRepo.save(conversation);
-        }
-
-        return ChatResponse.builder()
-                .conversationId(conversation != null ? conversation.getId() : null)
-                .messageId(messageId)
-                .query(request.getQuery())
-                .answer(answer)
-                .sources(List.of())
-                .images(List.of())
-                .build();
-    }
-
-    private List<ChatResponse.ImageInfo> searchImages(String vectorStr) {
-        try {
-            return imageRepo.findSimilarImages(vectorStr, IMAGE_TOP_K, IMAGE_SIMILARITY_THRESHOLD)
-                    .stream()
-                    .filter(this::imageObjectExists)
-                    .map(this::toImageInfo)
-                    .toList();
-        } catch (Exception e) {
-            log.warn("Image search failed: {}", e.getMessage());
-            return List.of();
-        }
-    }
-
-    private boolean imageObjectExists(ImageResult result) {
-        boolean exists = storageService.objectExistsByUrl(result.getUrl());
-        if (!exists) {
-            log.warn("Skipping stale image result because MinIO object is missing: {}", result.getUrl());
-        }
-        return exists;
-    }
-
-    private ChatResponse.ImageInfo toImageInfo(ImageResult result) {
-        Double score = result.getScore();
-        return ChatResponse.ImageInfo.builder()
-                .url(result.getUrl())
-                .caption(result.getCaption())
-                .category(result.getCategory())
-                .score(score != null ? score : 0.0)
-                .build();
-    }
-
-    private boolean isNoDataAnswer(String answer) {
-        if (answer == null) {
-            return false;
-        }
-        String normalized = answer.trim().toLowerCase(Locale.ROOT);
-        return normalized.startsWith("[no_data]");
-    }
-
-    private String stripNoDataMarker(String answer) {
-        if (answer == null) {
-            return "";
-        }
-        return answer.replaceFirst("(?i)^\\s*\\[NO_DATA\\]\\s*", "").trim();
-    }
-
-    private boolean isImageOnlyRequest(String query) {
-        String q = normalizeForScope(query);
-        if (q.isBlank()) {
-            return false;
-        }
-
-        if (!hasImageKeyword(q)) {
-            return false;
-        }
-
-        boolean asksForTextInfo = containsAny(q,
-                "quy dinh", "quy che", "thu tuc", "huong dan", "hoc phi",
-                "diem", "gpa", "tin chi", "phuc khao", "hoan thi", "lich thi",
-                "lich hoc", "hoc bong", "mien giam", "tot nghiep", "bao nhieu",
-                "khi nao", "o dau", "lam the nao", "can gi", "dieu kien",
-                "co gi", "gioi thieu", "thong tin", "mo ta");
-        if (asksForTextInfo) {
-            return false;
-        }
-
-        return containsAny(q,
-                "truong", "fbu", "khuon vien", "co so", "toa nha", "giang duong",
-                "thu vien", "phong hoc", "dich vong hau", "me linh", "dai hoc");
-    }
-
-    private boolean isImageRequest(String query) {
-        return hasImageKeyword(normalizeForScope(query));
-    }
-
-    private boolean hasImageKeyword(String q) {
-        boolean asksForImage = containsAny(q,
-                "hinh anh", "photo", "image", "logo",
-                "cho xem", "xem anh", "xem hinh", "gui anh", "co anh", "co hinh");
-        return asksForImage || containsToken(q, "anh") || containsToken(q, "hinh");
-    }
-
-    private boolean containsAny(String value, String... needles) {
-        for (String needle : needles) {
-            if (value.contains(needle)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean containsToken(String value, String token) {
-        return Arrays.asList(value.split("\\s+")).contains(token);
-    }
-
-    private String callGroq(Map<String, Object> payload) {
-        ensureGroqApiKeyConfigured();
-
-        HttpHeaders groqHeaders = new HttpHeaders();
-        groqHeaders.setBearerAuth(groqApiKey);
-        groqHeaders.setContentType(MediaType.APPLICATION_JSON);
-
-        HttpEntity<Map<String, Object>> groqEntity = new HttpEntity<>(payload, groqHeaders);
-        Map groqResp = groqRestTemplate.postForObject("https://api.groq.com/openai/v1/chat/completions", groqEntity,
-                Map.class);
-
-        if (groqResp == null || !groqResp.containsKey("choices")) {
-            throw new RuntimeException("Lỗi phản hồi từ Groq");
-        }
-
-        List<Map<String, Object>> choices = (List<Map<String, Object>>) groqResp.get("choices");
-        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
-        return (String) message.get("content");
-    }
-
-    private void ensureGroqApiKeyConfigured() {
-        if (groqApiKey == null || groqApiKey.isEmpty()) {
-            throw new RuntimeException("GROQ_API_KEY chưa được cấu hình ở môi trường Spring Boot");
-        }
     }
 
     public List<Message> getHistoryForUser(UUID conversationId, String userId) {
@@ -790,155 +221,501 @@ public class RagService {
         return conversationRepo.findByUserIdOrderByUpdatedAtDesc(userId);
     }
 
+    // ── Embedding (cached) ───────────────────────────────────────────────────
+
+    /**
+     * Lấy embedding vector cho query. Kết quả được cache theo segmentedQuery.
+     * Cache TTL=45 phút, max=500 entries — xem EmbeddingCacheConfig.
+     * Phải là public để Spring proxy áp dụng @Cacheable đúng cách.
+     */
+    @Cacheable(value = "queryEmbeddings", key = "#segmentedQuery")
+    public List<Float> getQueryEmbedding(String segmentedQuery) {
+        EmbeddingRequest embReq = new EmbeddingRequest();
+        embReq.setTexts(List.of(segmentedQuery));
+        embReq.setMode("query");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<EmbeddingResponse> embResponse = aiRestTemplate.exchange(
+                aiBaseUrl + "/v1/embeddings", HttpMethod.POST,
+                new HttpEntity<>(embReq, headers), EmbeddingResponse.class);
+
+        if (embResponse.getBody() == null || embResponse.getBody().getEmbeddings().isEmpty()) {
+            throw new RuntimeException("Lỗi sinh Embedding cho câu hỏi");
+        }
+        log.debug("Cache MISS — fetched embedding for query: {}", segmentedQuery);
+        return embResponse.getBody().getEmbeddings().get(0);
+    }
+
+    // ── Conversation helpers ─────────────────────────────────────────────────
+
+    private Conversation resolveConversation(ChatRequest request, String userId) {
+        if (userId == null) return null;
+        if (request.getConversationId() != null) {
+            UUID convId = UUID.fromString(request.getConversationId());
+            return conversationRepo.findByIdAndUserId(convId, userId)
+                    .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException(
+                            "Conversation không tồn tại hoặc bạn không có quyền truy cập"));
+        }
+        return createConversation(request.getQuery(), userId);
+    }
+
     private Conversation createConversation(String query, String userId) {
         String title = query.length() > 50 ? query.substring(0, 50) + "..." : query;
-        Conversation conv = Conversation.builder()
-                .userId(userId)
-                .title(title)
+        return conversationRepo.save(Conversation.builder().userId(userId).title(title).build());
+    }
+
+    private UUID persistAssistantMessage(Conversation conversation, String answer,
+                                          List<Map<String, Object>> sources,
+                                          List<ChatResponse.ImageInfo> images) {
+        if (conversation == null) return null;
+        String sourcesJson = "";
+        try {
+            sourcesJson = objectMapper.writeValueAsString(sources);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize sources", e);
+        }
+        Message assistantMsg = Message.builder()
+                .conversation(conversation)
+                .role("assistant")
+                .content(answer)
+                .sources(sourcesJson)
+                .images(serializeImages(images))
                 .build();
-        return conversationRepo.save(conv);
+        messageRepo.save(assistantMsg);
+        conversationRepo.save(conversation);
+        return assistantMsg.getId();
     }
 
-    private List<ChunkResult> filterByMetadata(List<ChunkResult> results, ChatRequest request) {
-        if (results == null || results.isEmpty())
+    private void addHistoryMessage(List<Map<String, Object>> groqMessages, String role, String content) {
+        if (!"user".equals(role) && !"assistant".equals(role)) return;
+        if (content == null || content.isBlank()) return;
+        Map<String, Object> hm = new HashMap<>();
+        hm.put("role", role);
+        hm.put("content", content.length() > MAX_HISTORY_CONTENT_LENGTH
+                ? content.substring(0, MAX_HISTORY_CONTENT_LENGTH) : content);
+        groqMessages.add(hm);
+    }
+
+    private void appendDbHistory(List<Map<String, Object>> groqMessages, List<Message> history) {
+        if (history == null || history.isEmpty()) return;
+        int fromIdx = Math.max(0, history.size() - HISTORY_WINDOW * 2);
+        for (Message histMsg : history.subList(fromIdx, history.size())) {
+            String content = histMsg.getContent();
+            if ("assistant".equals(histMsg.getRole()) && content != null && content.length() > 200) {
+                content = content.substring(0, 200) + "... [đã rút gọn]";
+            }
+            Map<String, Object> hm = new HashMap<>();
+            hm.put("role", histMsg.getRole());
+            hm.put("content", content);
+            groqMessages.add(hm);
+        }
+    }
+
+    private void appendClientHistory(List<Map<String, Object>> groqMessages, List<ChatHistoryMessage> history) {
+        if (history == null || history.isEmpty()) return;
+        int fromIdx = Math.max(0, history.size() - HISTORY_WINDOW * 2);
+        for (ChatHistoryMessage h : history.subList(fromIdx, history.size())) {
+            if (h != null) addHistoryMessage(groqMessages, h.getRole(), h.getContent());
+        }
+    }
+
+    // ── Groq calls ───────────────────────────────────────────────────────────
+
+    private String callRagGroq(ChatRequest request, Conversation conversation,
+                               List<Message> conversationHistory, String contextText) {
+        String systemPrompt = "# VAI TRÒ VÀ ĐỊNH DANH\n" +
+                "Bạn là Trợ lý AI chuyên nghiệp và thân thiện của Trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). " +
+                "Nhiệm vụ của bạn là hỗ trợ sinh viên và giảng viên tra cứu các quy chế, quy định nội bộ dựa trên dữ liệu [CONTEXT] được cung cấp.\n\n" +
+                "# NGUYÊN TẮC CỐT LÕI (TUÂN THỦ TUYỆT ĐỐI)\n" +
+                "1. CHỈ câu trả lời dựa trên thông tin có trong [CONTEXT]. Tuyệt đối không tự suy diễn, bịa đặt hoặc dùng kiến thức chung trên Internet để đoán quy định của FBU.\n" +
+                "2. Trả lời ĐẦY ĐỦ — bao gồm TẤT CẢ thông tin liên quan có trong [CONTEXT]. Nếu CONTEXT có danh sách, bảng biểu, nhiều mục → trình bày đúng cấu trúc đó, KHÔNG được bỏ sót hoặc tóm tắt.\n" +
+                "3. Trả lời bằng tiếng Việt lịch sự, truyền cảm hứng, ngắn gọn nhưng đầy đủ ý. Sử dụng các dấu gạch đầu dòng rõ ràng để phân tách các quy trình, điều khoản.\n" +
+                "4. Quản lý lịch sử hội thoại: Đọc kỹ các câu trả lời trước đó để KHÔNG lặp lại thông tin cũ. Chỉ tập trung bổ sung thông tin mới đáp ứng đúng câu hỏi tiếp diễn.\n\n" +
+                "5. Nếu câu hỏi yêu cầu liệt kê bộ môn/học phần, hãy liệt kê đầy đủ tất cả bộ môn và học phần liên quan xuất hiện trong [CONTEXT].\n\n" +
+                "# HƯỚNG DẪN XỬ LÝ KHI THIẾU THÔNG TIN (KỊCH BẢN FALLBACK)\n" +
+                "BẠN CHỈ KÍCH HOẠT KỊCH BẢN NÀY KHI: [CONTEXT] hoàn toàn trống rỗng HOẶC tất cả nội dung trong [CONTEXT] không liên quan gì đến câu hỏi.\n" +
+                "LƯU Ý QUAN TRỌNG: Nếu [CONTEXT] có chứa BẤT KỲ thông tin nào có thể trả lời câu hỏi — dù là thông tin về quy chế, tác giả, người tạo hệ thống, giới thiệu dự án, hay bất kỳ chủ đề nào khác — bạn PHẢI trả lời dựa trên đó, KHÔNG được dùng [NO_DATA].\n" +
+                "Khi rơi vào kịch bản thiếu thông tin này, bạn PHẢI tuân thủ cấu trúc trả về sau:\n" +
+                "- Bắt đầu câu trả lời bằng Tag chính xác: [NO_DATA]\n" +
+                "- Sau đó, viết một câu thông báo lịch sự, ấm áp rằng hệ thống dữ liệu hiện tại chưa cập nhật thông tin về chủ đề này và mời người dùng gửi phản hồi qua 'Tab Góp ý' hoặc gửi email về trinhdat24102003@gmail.com.\n" +
+                "⚠️ CHÚ Ý: Tuyệt đối không dùng văn mẫu cố định của hệ thống trong prompt này, hãy tự viết câu thông báo một cách tự nhiên.\n\n" +
+                "# QUY TẮC CẤM ĐỊNH DẠNG NGUỒN\n" +
+                "- Tuyệt đối KHÔNG được tự viết chữ 'Nguồn:' hoặc tự tổng hợp danh sách tên file ở cuối câu trả lời dưới mọi hình thức (Hệ thống đã có bộ lọc tự động xử lý phần này).\n" +
+                "- Bạn chỉ được phép lồng ghép tên văn bản một cách tự nhiên vào câu văn nếu cần làm rõ tính pháp lý (Ví dụ: 'Dựa trên Quyết định số 116, quy trình xác nhận sinh viên gồm...').";
+
+        String userPrompt = "CONTEXT TỪ TÀI LIỆU FBU:\n" + contextText + "\n\n" +
+                "CÂU HỎI HIỆN TẠI: " + request.getQuery() + "\n\n" +
+                "Trả lời (Tuân thủ tuyệt đối quy tắc định dạng nguồn):";
+
+        List<Map<String, Object>> groqMessages = new ArrayList<>();
+        groqMessages.add(Map.of("role", "system", "content", systemPrompt));
+
+        if (conversation != null) {
+            appendDbHistory(groqMessages, conversationHistory);
+            messageRepo.save(Message.builder()
+                    .conversation(conversation).role("user").content(request.getQuery()).build());
+        } else {
+            appendClientHistory(groqMessages, request.getHistory());
+        }
+
+        groqMessages.add(Map.of("role", "user", "content", userPrompt));
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("model", GroqChatClient.GROQ_MODEL);
+        payload.put("messages", groqMessages);
+        payload.put("temperature", 0.3);
+        payload.put("max_tokens", 2048);
+
+        log.info("Calling Groq LLM Generator...");
+        return groqClient.call(payload);
+    }
+
+    private ChatResponse buildConversationalChatResponse(ChatRequest request, Conversation conversation,
+                                                          List<Message> conversationHistory) {
+        List<Map<String, Object>> groqMessages = new ArrayList<>();
+        groqMessages.add(Map.of("role", "system", "content",
+                "Bạn là trợ lý AI thân thiện của trường Đại học Tài chính - Ngân hàng Hà Nội (FBU). " +
+                "Trả lời các câu xã giao/tán gẫu bằng tiếng Việt, tự nhiên, ngắn gọn. " +
+                "Nếu người dùng hỏi thông tin chính thức cần tra cứu tài liệu FBU, hãy gợi ý họ đặt câu hỏi cụ thể."));
+
+        if (conversation != null) {
+            appendDbHistory(groqMessages, conversationHistory);
+        } else {
+            appendClientHistory(groqMessages, request.getHistory());
+        }
+        groqMessages.add(Map.of("role", "user", "content", request.getQuery()));
+
+        if (conversation != null) {
+            messageRepo.save(Message.builder()
+                    .conversation(conversation).role("user").content(request.getQuery()).build());
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("model", GroqChatClient.GROQ_MODEL);
+        payload.put("messages", groqMessages);
+        payload.put("temperature", 0.4);
+        payload.put("max_tokens", 256);
+
+        String answer = groqClient.call(payload);
+        UUID messageId = null;
+        if (conversation != null) {
+            Message assistantMsg = Message.builder()
+                    .conversation(conversation).role("assistant").content(answer).sources("[]").build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+            conversationRepo.save(conversation);
+        }
+
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId)
+                .query(request.getQuery())
+                .answer(answer)
+                .sources(List.of())
+                .images(List.of())
+                .build();
+    }
+
+    // ── Fallback / image response builders ──────────────────────────────────
+
+    private ChatResponse buildImageOnlyChatResponse(ChatRequest request, Conversation conversation,
+                                                     List<ChatResponse.ImageInfo> images) {
+        String answer = "Mình tìm thấy một số hình ảnh minh họa phù hợp với câu hỏi của bạn. " +
+                "Bạn có thể xem các ảnh được đính kèm bên dưới.";
+        UUID messageId = null;
+        if (conversation != null) {
+            messageRepo.save(Message.builder().conversation(conversation)
+                    .role("user").content(request.getQuery()).build());
+            Message assistantMsg = Message.builder().conversation(conversation)
+                    .role("assistant").content(answer).sources("[]").images(serializeImages(images)).build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+            conversationRepo.save(conversation);
+        }
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId).query(request.getQuery()).answer(answer)
+                .sources(List.of()).images(images).build();
+    }
+
+    private ChatResponse buildImageFallbackChatResponse(ChatRequest request, Conversation conversation) {
+        String answer = "Hiện tại hệ thống chưa tìm thấy hình ảnh phù hợp với yêu cầu của bạn.";
+        UUID messageId = null;
+        if (conversation != null) {
+            messageRepo.save(Message.builder().conversation(conversation)
+                    .role("user").content(request.getQuery()).build());
+            Message assistantMsg = Message.builder().conversation(conversation)
+                    .role("assistant").content(answer).sources("[]").build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+            conversationRepo.save(conversation);
+        }
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId).query(request.getQuery()).answer(answer)
+                .sources(List.of()).images(List.of()).build();
+    }
+
+    /** Trả về khi user hỏi "còn ảnh khác không?" nhưng đã hết ảnh mới (tất cả đã hiển thị). */
+    private ChatResponse buildImageExhaustedChatResponse(ChatRequest request, Conversation conversation) {
+        String answer = "Mình đã chia sẻ tất cả hình ảnh hiện có trong hệ thống liên quan đến chủ đề này rồi. "
+                + "Nếu bạn muốn xem ảnh về chủ đề khác, hãy đặt câu hỏi cụ thể hơn nhé!";
+        UUID messageId = null;
+        if (conversation != null) {
+            messageRepo.save(Message.builder().conversation(conversation)
+                    .role("user").content(request.getQuery()).build());
+            Message assistantMsg = Message.builder().conversation(conversation)
+                    .role("assistant").content(answer).sources("[]").build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+            conversationRepo.save(conversation);
+        }
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId).query(request.getQuery()).answer(answer)
+                .sources(List.of()).images(List.of()).build();
+    }
+
+    private ChatResponse buildFallbackChatResponse(ChatRequest request, Conversation conversation) {
+        String answer = "Hiện tại hệ thống dữ liệu của mình chưa có thông tin chính thức về câu hỏi: \""
+                + request.getQuery()
+                + "\".\n\nNếu bạn biết hoặc có tài liệu chính thức về nội dung này, bạn có thể gửi phản hồi qua "
+                + "Phòng Công tác Sinh viên hoặc email support-chatbot@fbu.edu.vn để hệ thống được cập nhật đầy đủ hơn. Cảm ơn bạn đã góp ý.";
+        UUID messageId = null;
+        if (conversation != null) {
+            messageRepo.save(Message.builder().conversation(conversation)
+                    .role("user").content(request.getQuery()).build());
+            Message assistantMsg = Message.builder().conversation(conversation)
+                    .role("assistant").content(answer).sources("[]").build();
+            messageRepo.save(assistantMsg);
+            messageId = assistantMsg.getId();
+            conversationRepo.save(conversation);
+        }
+        return ChatResponse.builder()
+                .conversationId(conversation != null ? conversation.getId() : null)
+                .messageId(messageId).query(request.getQuery()).answer(answer)
+                .sources(List.of()).images(List.of()).build();
+    }
+
+    // ── Image helpers ────────────────────────────────────────────────────────
+
+    private List<ChatResponse.ImageInfo> searchImages(String vectorStr, Set<String> excludeUrls) {
+        try {
+            return imageRepo.findSimilarImages(vectorStr, IMAGE_TOP_K + excludeUrls.size(), IMAGE_SIMILARITY_THRESHOLD)
+                    .stream()
+                    .filter(r -> {
+                        boolean exists = storageService.objectExistsByUrl(r.getUrl());
+                        if (!exists) log.warn("Skipping stale image: {}", r.getUrl());
+                        return exists;
+                    })
+                    // Loại ảnh đã hiển thị ở các lượt trước
+                    .filter(r -> !excludeUrls.contains(r.getUrl()))
+                    .limit(IMAGE_TOP_K)
+                    .map(r -> ChatResponse.ImageInfo.builder()
+                            .url(r.getUrl()).caption(r.getCaption()).category(r.getCategory())
+                            .score(r.getScore() != null ? r.getScore() : 0.0).build())
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Image search failed: {}", e.getMessage());
             return List.of();
-
-        if (request.getYear() == null && request.getDocType() == null)
-            return filterByQueryScope(results, request.getQuery());
-
-        List<ChunkResult> filtered = results.stream()
-                .filter(c -> request.getYear() == null
-                        || c.getYear() == null
-                        || request.getYear().equals(c.getYear()))
-                .filter(c -> request.getDocType() == null
-                        || c.getDocType() == null
-                        || request.getDocType().equalsIgnoreCase(c.getDocType()))
-                .collect(Collectors.toList());
-
-        if (!results.isEmpty() && filtered.size() < results.size() / 2) {
-            log.warn("Metadata filter dropped {}/{} chunks. Keeping unfiltered candidates to avoid losing relevant context.",
-                    results.size() - filtered.size(), results.size());
-            return filterByQueryScope(results, request.getQuery());
         }
-
-        return filterByQueryScope(filtered, request.getQuery());
     }
 
-    private List<ChunkResult> filterByQueryScope(List<ChunkResult> results, String query) {
-        List<String> scopeTerms = inferQueryScopeTerms(query);
-        if (scopeTerms.isEmpty()) {
-            return results;
-        }
+    /**
+     * Gom tất cả parentId đã được dùng trong các lượt assistant trước của conversation.
+     * Dùng để exclude khi user hỏi follow-up "còn thông tin gì khác không?".
+     * Source file được lưu trong Message.sources dạng JSON: [{"file":"...", "year":..., "doc_type":"..."}]
+     * → join với DocumentChunk để lấy parentId theo sourceFile.
+     *
+     * Approach đơn giản hơn: lấy sourceFile từ sources, rồi exclude chunk theo sourceFile
+     * vì parentId không được lưu trực tiếp trong messages.sources.
+     */
+    private Set<UUID> getUsedParentIds(Conversation conversation, List<ChatHistoryMessage> clientHistory) {
+        if (conversation == null) return Set.of();
 
-        List<ChunkResult> scoped = results.stream()
-                .filter(c -> {
-                    String haystack = normalizeForScope(
-                            String.join(" ",
-                                    Objects.toString(c.getSourceFile(), ""),
-                                    Objects.toString(c.getContent(), ""),
-                                    Objects.toString(c.getSection(), "")));
-                    return scopeTerms.stream().anyMatch(haystack::contains);
-                })
-                .collect(Collectors.toList());
-
-        if (!scoped.isEmpty()) {
-            log.info("Query scope filter kept {}/{} chunks for terms {}", scoped.size(), results.size(), scopeTerms);
-            return scoped;
-        }
-
-        log.warn("Query scope filter matched no chunks for terms {}. Keeping metadata-filtered candidates.", scopeTerms);
-        return results;
-    }
-
-    private List<String> inferQueryScopeTerms(String query) {
-        String q = normalizeForScope(query);
-        if (q.contains("cong nghe thong tin") || q.contains("cntt") || q.contains("tin ung dung")) {
-            return List.of("viencongnghethongtin", "cong nghe thong tin", "cntt", "tin ung dung");
-        }
-        if (q.contains("ke toan") || q.contains("kiem toan")) {
-            return List.of("vienketoankiemtoan", "ke toan", "kiem toan");
-        }
-        if (q.contains("quan tri kinh doanh") || q.contains("kinh doanh")) {
-            return List.of("vienquantrikinhdoanh", "quan tri kinh doanh");
-        }
-        if (q.contains("tai chinh") || q.contains("ngan hang")) {
-            return List.of("taichinhnganhang", "tai chinh", "ngan hang");
-        }
-        if (q.contains("ngoai ngu")) {
-            return List.of("ngoaingu", "ngoai ngu");
-        }
-        return List.of();
-    }
-
-    private String normalizeForScope(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-        String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .toLowerCase(Locale.ROOT);
-        return normalized.replaceAll("[^a-z0-9]+", " ").trim();
-    }
-
-    private java.util.function.Predicate<ChunkResult> distinctBySourceFile() {
-        Set<String> seen = new HashSet<>();
-        return c -> seen.add(Objects.toString(c.getSourceFile(), ""));
-    }
-
-    private String buildContextWithParents(List<ChunkResult> contexts) {
-        List<UUID> parentIds = contexts.stream()
-                .map(ChunkResult::getParentId)
+        Set<UUID> parentIds = new HashSet<>();
+        messageRepo.findByConversationIdOrderByCreatedAtAsc(conversation.getId())
+                .stream()
+                .filter(m -> "assistant".equals(m.getRole()))
+                .map(Message::getSources)
+                .filter(json -> json != null && !json.isBlank() && !json.equals("[]"))
+                .flatMap(json -> deserializeSources(json).stream())
+                .map(ChatResponse.SourceInfo::getFile)
                 .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
+                .forEach(sourceFile -> {
+                    // Lấy tất cả parentId của các chunk thuộc sourceFile này
+                    docRepo.findParentIdsBySourceFile(sourceFile)
+                            .stream()
+                            .filter(Objects::nonNull)
+                            .forEach(parentIds::add);
+                });
 
-        Map<UUID, ParentChunk> parentMap = new HashMap<>();
-        if (!parentIds.isEmpty()) {
-            List<ParentChunk> parents = parentChunkRepo.findAllById(parentIds);
-            for (ParentChunk p : parents) {
-                parentMap.put(p.getId(), p);
-            }
-        }
-
-        Set<UUID> usedParentIds = new HashSet<>();
-        Set<String> usedFallbackKeys = new HashSet<>();
-        List<String> contextParts = new ArrayList<>();
-
-        for (ChunkResult c : contexts) {
-            UUID pid = c.getParentId();
-            String yearLabel = c.getYear() != null ? String.valueOf(c.getYear()) : "Không rõ năm";
-
-            String sectionLabel = (c.getSection() != null && !c.getSection().isBlank())
-                    ? " | Mục: " + c.getSection()
-                    : "";
-
-            if (pid != null && parentMap.containsKey(pid)) {
-                if (usedParentIds.add(pid)) {
-                    ParentChunk parent = parentMap.get(pid);
-                    contextParts.add(String.format("[Nguồn: %s | Năm: %s%s]\n%s",
-                            c.getSourceFile(), yearLabel, sectionLabel, parent.getContent()));
-                }
-            } else {
-                if (pid != null) {
-                    log.warn(
-                            "Khẩn cấp: Tìm thấy parentId {} cho chunk của file {} nhưng không tồn tại trong bảng parent_chunks! Tự động hạ cấp sang Child Content.",
-                            pid, c.getSourceFile());
-                }
-
-                String fallbackKey = c.getSourceFile() + ":"
-                        + (c.getContent() != null ? c.getContent().hashCode() : "");
-
-                if (usedFallbackKeys.add(fallbackKey)) {
-                    contextParts.add(String.format("[Nguồn: %s | Năm: %s%s (Mẩu tin nhỏ)]\n%s",
-                            c.getSourceFile(), yearLabel, sectionLabel, c.getContent()));
-                }
-            }
-        }
-
-        return String.join("\n\n---\n\n", contextParts);
+        return parentIds;
     }
 
-    /** Serialize list of ImageInfo → JSON string để lưu vào DB. Trả về "[]" nếu lỗi. */
+    /**
+     * Detect intent follow-up "còn thông tin gì khác không?" / "xem thêm" / "tiếp tục".
+     * Dùng keyword matching đơn giản — đủ cho các pattern phổ biến trong tiếng Việt.
+     */
+    private boolean isFollowUpMoreRequest(String query) {
+        String q = contextRetrieval.normalizeForScope(query);
+        return containsAny(q,
+                "con thong tin", "thong tin khac", "con gi khac", "co gi khac",
+                "xem them", "cho xem them", "biet them", "them thong tin",
+                "tiep tuc", "con nua khong", "con nua ko", "co them khong",
+                "khai thac them", "mo rong them", "chi tiet hon");
+    }
+
+    private Set<String> extractShownImageUrls(List<Message> history) {
+        if (history == null || history.isEmpty()) return Set.of();
+        Set<String> urls = new HashSet<>();
+        history.stream()
+                .filter(m -> "assistant".equals(m.getRole()))
+                .map(Message::getImages)
+                .filter(json -> json != null && !json.isBlank() && !json.equals("[]"))
+                .flatMap(json -> deserializeImages(json).stream())
+                .map(ChatResponse.ImageInfo::getUrl)
+                .filter(Objects::nonNull)
+                .forEach(urls::add);
+        if (!urls.isEmpty()) {
+            log.info("Excluding {} already-shown image URLs from search results", urls.size());
+        }
+        return urls;
+    }
+
+    private String extractPreviousImageCategory(List<Message> history) {
+        if (history == null || history.isEmpty()) return null;
+        return history.stream()
+                .filter(m -> "assistant".equals(m.getRole()))
+                .map(Message::getImages)
+                .filter(json -> json != null && !json.isBlank() && !json.equals("[]"))
+                .flatMap(json -> deserializeImages(json).stream())
+                .map(ChatResponse.ImageInfo::getCategory)
+                .filter(Objects::nonNull)
+                .reduce((first, second) -> second) // lấy category của turn ảnh cuối cùng
+                .orElse(null);
+    }
+
+    private Set<UUID> extractUsedParentIds(List<Message> history) {
+        if (history == null || history.isEmpty()) return Set.of();
+        Set<UUID> parentIds = new HashSet<>();
+        history.stream()
+                .filter(m -> "assistant".equals(m.getRole()))
+                .map(Message::getSources)
+                .filter(json -> json != null && !json.isBlank() && !json.equals("[]"))
+                .flatMap(json -> deserializeSources(json).stream())
+                .map(ChatResponse.SourceInfo::getFile)
+                .filter(Objects::nonNull)
+                .forEach(sourceFile ->
+                        docRepo.findParentIdsBySourceFile(sourceFile)
+                                .stream()
+                                .filter(Objects::nonNull)
+                                .forEach(parentIds::add));
+        return parentIds;
+    }
+
+    /**
+     * Search ảnh tiếp theo trong cùng category, exclude các URL đã hiển thị.
+     * Tái dùng vector của original query (đã cache) — không embed lại câu follow-up.
+     */
+    private List<ChatResponse.ImageInfo> searchImagesByCategory(String vectorStr, String category,
+                                                                  Set<String> excludeUrls) {
+        try {
+            // Format PostgreSQL text[] literal: {"url1","url2"} hoặc {} nếu rỗng
+            String pgArray = "{" + excludeUrls.stream()
+                    .map(u -> "\"" + u.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+                    .collect(Collectors.joining(",")) + "}";
+
+            return imageRepo.findSimilarImagesByCategory(
+                            vectorStr, category, pgArray, IMAGE_TOP_K, IMAGE_SIMILARITY_THRESHOLD)
+                    .stream()
+                    .filter(r -> {
+                        boolean exists = storageService.objectExistsByUrl(r.getUrl());
+                        if (!exists) log.warn("Skipping stale image: {}", r.getUrl());
+                        return exists;
+                    })
+                    .map(r -> ChatResponse.ImageInfo.builder()
+                            .url(r.getUrl()).caption(r.getCaption()).category(r.getCategory())
+                            .score(r.getScore() != null ? r.getScore() : 0.0).build())
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Image category search failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private boolean isImageRequest(String query) {
+        return hasImageKeyword(contextRetrieval.normalizeForScope(query));
+    }
+
+    private boolean isImageOnlyRequest(String query) {
+        String q = contextRetrieval.normalizeForScope(query);
+        if (q.isBlank() || !hasImageKeyword(q)) return false;
+
+        // Câu follow-up hỏi thêm ảnh: "còn ảnh khác không", "có ảnh nào khác không", v.v.
+        boolean isFollowUpImageQuery = containsAny(q, "con anh", "anh khac", "hinh khac",
+                "co anh nao khac", "co hinh nao khac", "xem them", "anh nao khac");
+        if (isFollowUpImageQuery) return true;
+
+        // Câu hỏi về text info → không phải image-only
+        boolean asksForTextInfo = containsAny(q,
+                "quy dinh", "quy che", "thu tuc", "huong dan", "hoc phi", "diem", "gpa",
+                "tin chi", "phuc khao", "hoan thi", "lich thi", "lich hoc", "hoc bong",
+                "mien giam", "tot nghiep", "bao nhieu", "khi nao", "o dau", "lam the nao",
+                "can gi", "dieu kien", "co gi", "gioi thieu", "thong tin", "mo ta");
+        if (asksForTextInfo) return false;
+
+        // Câu hỏi xem ảnh cơ sở vật chất / địa điểm trường
+        return containsAny(q, "truong", "fbu", "khuon vien", "co so", "toa nha",
+                "giang duong", "thu vien", "phong hoc", "dich vong hau", "me linh", "dai hoc");
+    }
+
+    private boolean hasImageKeyword(String q) {
+        boolean asksForImage = containsAny(q, "hinh anh", "photo", "image", "logo",
+                "cho xem", "xem anh", "xem hinh", "gui anh", "co anh", "co hinh");
+        return asksForImage || containsToken(q, "anh") || containsToken(q, "hinh");
+    }
+
+    private boolean containsAny(String value, String... needles) {
+        for (String needle : needles) {
+            if (value.contains(needle)) return true;
+        }
+        return false;
+    }
+
+    private boolean containsToken(String value, String token) {
+        return List.of(value.split("\\s+")).contains(token);
+    }
+
+    // ── Source / serialization helpers ──────────────────────────────────────
+
+    private List<Map<String, Object>> buildSources(List<ChunkResult> topContexts) {
+        Set<String> seen = new HashSet<>();
+        return topContexts.stream()
+                .filter(c -> seen.add(Objects.toString(c.getSourceFile(), "")))
+                .map(c -> {
+                    Map<String, Object> s = new HashMap<>();
+                    s.put("file", c.getSourceFile());
+                    s.put("year", c.getYear());
+                    s.put("doc_type", c.getDocType());
+                    return s;
+                }).collect(Collectors.toList());
+    }
+
+    private List<ChatResponse.SourceInfo> toSourceInfos(List<Map<String, Object>> sources) {
+        return sources.stream()
+                .collect(Collectors.toMap(
+                        s -> (String) s.get("file"),
+                        s -> ChatResponse.SourceInfo.builder()
+                                .file((String) s.get("file"))
+                                .year(s.get("year") instanceof Integer ? (Integer) s.get("year") : null)
+                                .docType((String) s.get("doc_type"))
+                                .build(),
+                        (existing, duplicate) -> existing))
+                .values().stream().toList();
+    }
+
     private String serializeImages(List<ChatResponse.ImageInfo> images) {
         if (images == null || images.isEmpty()) return "[]";
         try {
@@ -949,7 +726,6 @@ public class RagService {
         }
     }
 
-    /** Deserialize JSON string từ DB → list of ImageInfo. Trả về empty list nếu null/lỗi. */
     public List<ChatResponse.ImageInfo> deserializeImages(String imagesJson) {
         if (imagesJson == null || imagesJson.isBlank() || imagesJson.equals("[]")) return List.of();
         try {
@@ -961,7 +737,6 @@ public class RagService {
         }
     }
 
-    /** Deserialize JSON string từ DB → list of SourceInfo. */
     public List<ChatResponse.SourceInfo> deserializeSources(String sourcesJson) {
         if (sourcesJson == null || sourcesJson.isBlank() || sourcesJson.equals("[]")) return List.of();
         try {
@@ -971,5 +746,30 @@ public class RagService {
             log.warn("Failed to deserialize sources: {}", e.getMessage());
             return List.of();
         }
+    }
+
+    // ── Answer helpers ───────────────────────────────────────────────────────
+
+    private boolean isNoDataAnswer(String answer) {
+        if (answer == null) return false;
+        return answer.trim().toLowerCase(Locale.ROOT).startsWith("[no_data]");
+    }
+
+    private String stripNoDataMarker(String answer) {
+        if (answer == null) return "";
+        return answer.replaceFirst("(?i)^\\s*\\[NO_DATA\\]\\s*", "").trim();
+    }
+
+    private void logChunks(List<ChunkResult> topContexts) {
+        log.info("=== CHUNKS SENT TO LLM ({}) ===", topContexts.size());
+        for (int i = 0; i < topContexts.size(); i++) {
+            ChunkResult c = topContexts.get(i);
+            log.info("[{}] {} | len={} | preview={}", i + 1, c.getSourceFile(),
+                    c.getContent() != null ? c.getContent().length() : 0,
+                    c.getContent() != null
+                            ? c.getContent().substring(0, Math.min(80, c.getContent().length())).replace("\n", " ")
+                            : "NULL");
+        }
+        log.info("================================");
     }
 }

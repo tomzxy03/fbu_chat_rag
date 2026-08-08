@@ -5,12 +5,14 @@ import com.tomzxy.fbu_chat.dto.IngestResponse;
 import com.tomzxy.fbu_chat.repository.DocumentChunkRepository;
 import com.tomzxy.fbu_chat.repository.ParentChunkRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -20,14 +22,17 @@ public class DocumentService {
     private final SingleDocumentIngestorService singleDocumentIngestorService;
     private final DocumentChunkRepository chunkRepository;
     private final ParentChunkRepository parentChunkRepository;
+    private final Executor ingestExecutor;
 
     public DocumentService(
             DocumentChunkRepository chunkRepository,
             ParentChunkRepository parentChunkRepository,
-            SingleDocumentIngestorService singleDocumentIngestorService) {
+            SingleDocumentIngestorService singleDocumentIngestorService,
+            @Qualifier("ingestExecutor") Executor ingestExecutor) {
         this.chunkRepository = chunkRepository;
         this.parentChunkRepository = parentChunkRepository;
         this.singleDocumentIngestorService = singleDocumentIngestorService;
+        this.ingestExecutor = ingestExecutor;
     }
 
     public List<IngestResponse> ingestDocuments(MultipartFile[] files) {
@@ -47,7 +52,7 @@ public class DocumentService {
                                 .chunks(0)
                                 .build();
                     }
-                }))
+                }, ingestExecutor))  // dùng bounded thread pool thay vì ForkJoinPool.commonPool()
                 .collect(Collectors.toList());
 
         return futures.stream()

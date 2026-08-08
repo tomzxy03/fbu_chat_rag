@@ -8,7 +8,30 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 _MIN_CHILD_CHARS = 50
 _MAX_CHILD_CHARS = 800
 _FALLBACK_CHUNK_SIZE = 600
-_FALLBACK_OVERLAP = 0  # Với văn bản cấu trúc/pháp lý, hạn chế overlap bừa bãi gây nhiễu
+_FALLBACK_OVERLAP = 80   # Đủ để giữ 1-2 câu context khi buộc phải cắt giữa paragraph
+
+# Separators theo thứ tự ưu tiên đúng cho văn bản tiếng Việt có cấu trúc:
+# 1. Paragraph break (tự nhiên nhất)
+# 2. Dòng heading/danh sách có số thứ tự (thường gặp trong QĐ, TB)
+# 3. Danh sách chữ cái a), b), c)
+# 4. Danh sách La Mã I., II., III.
+# 5. Danh sách gạch đầu dòng
+# 6. Câu (dấu chấm + khoảng trắng)
+# 7. Dòng đơn (last resort — tránh cắt giữa câu)
+_SEPARATORS = [
+    "\n\n",          # paragraph break — tự nhiên nhất, ưu tiên cao nhất
+    "\nĐiều ",       # điều khoản văn bản pháp lý
+    "\nKhoản ",
+    "\nMục ",
+    "\nChương ",
+    "\n[0-9]+\\. ",  # danh sách số: 1. 2. 3. — NOTE: RecursiveCharacterTextSplitter hỗ trợ regex từ v0.3+
+    "\na) ", "\nb) ", "\nc) ", "\nd) ", "\ne) ",  # danh sách chữ cái
+    "\nI\\. ", "\nII\\. ", "\nIII\\. ", "\nIV\\. ", "\nV\\. ",  # La Mã
+    "\n- ",          # gạch đầu dòng
+    "\n",            # dòng đơn
+    ". ",            # câu (cuối cùng trước khi cắt từ)
+    " ",
+]
 
 
 class MarkdownProcessor(BaseProcessor):
@@ -43,13 +66,14 @@ class MarkdownProcessor(BaseProcessor):
                 if len(child_text.strip()) < _MIN_CHILD_CHARS:
                     continue
 
-                # Prepend context sạch để embedding chuẩn
+                # text_to_embed: child text thuần — không có prefix để embedding
+                # chính xác về semantic, không bị kéo về hướng tên tài liệu.
+                # content_to_store: giữ context prefix để hiển thị/debug.
                 context_prefix = f"[Tài liệu: {meta['title']}] [{parent_heading}]\n"
-                full_content = context_prefix + child_text
 
-                # ĐỒNG NHẤT KEY VỚI JAVA DTO (camelCase)
                 results.append({
-                    "content": full_content,
+                    "content": context_prefix + child_text,   # lưu DB để display
+                    "textToEmbed": child_text,                 # embed thuần — field mới
                     "chunkIndex": chunk_idx,
                     "pageNumber": 1,
                     "parentHeading": parent_heading,
@@ -57,8 +81,6 @@ class MarkdownProcessor(BaseProcessor):
                     "title": meta["title"],
                     "year": meta["year"],
                     "docType": meta["type"],
-                    # sourceFile phải là tên file .md đang ingest (để idempotency/delete đúng)
-                    # meta["source"] là tên tài liệu gốc (PDF ref), chỉ dùng để display
                     "sourceFile": filename,
                 })
                 chunk_idx += 1
@@ -140,30 +162,66 @@ class MarkdownProcessor(BaseProcessor):
 
         return children
 
+    # Regex nhận diện bảng Markdown hợp lệ:
+    # - Dòng header: |...|
+    # - Dòng separator: |---|, |:---:|, | --- |, v.v.
+    # - Ít nhất 1 dòng data
+    _TABLE_RE = re.compile(
+        r"(?:(?:\|[^\n]+\|\n)"         # header row
+        r"\|[\s|:\-]+\|\n"             # separator row (|---|)
+        r"(?:\|[^\n]+\|\n?)+)",        # 1+ data rows
+        re.MULTILINE,
+    )
+
+    @staticmethod
+    def _make_splitter() -> RecursiveCharacterTextSplitter:
+        """
+        Factory tạo splitter dùng chung — tránh lặp code và đảm bảo
+        tất cả các nhánh dùng cùng cấu hình.
+
+        is_separator_regex=True cho phép dùng pattern như \n[0-9]+\\. 
+        mà không cần enumerate từng số.
+        """
+        return RecursiveCharacterTextSplitter(
+            chunk_size=_FALLBACK_CHUNK_SIZE,
+            chunk_overlap=_FALLBACK_OVERLAP,
+            separators=_SEPARATORS,
+            is_separator_regex=True,
+        )
+
     def _smart_text_splitter(self, text: str) -> list[str]:
         """Bóc tách bảng ra riêng biệt, phần text thường thì băm theo ký tự."""
-        # Tách text thành các khối dựa trên dòng kẻ bảng để bảo vệ bảng không bị chặt đôi
-        blocks = re.split(r"(\n(?:\|[^\n]+\|\n)+)", f"\n{text}\n")
         final_chunks = []
+        last_end = 0
 
-        for block in blocks:
-            block_clean = block.strip()
-            if not block_clean:
-                continue
-            
-            # Nếu khối này là bảng -> Giữ nguyên làm 1 chunk độc lập
-            if block_clean.startswith("|") and block_clean.endswith("|"):
-                final_chunks.append(block_clean)
-            else:
-                # Text thường -> Tiến hành băm nhỏ bằng LangChain
-                if len(block_clean) <= _MAX_CHILD_CHARS:
-                    final_chunks.append(block_clean)
+        for match in self._TABLE_RE.finditer(text):
+            before = text[last_end:match.start()].strip()
+            if before:
+                if len(before) <= _MAX_CHILD_CHARS:
+                    final_chunks.append(before)
                 else:
-                    splitter = RecursiveCharacterTextSplitter(
-                        chunk_size=_FALLBACK_CHUNK_SIZE,
-                        chunk_overlap=_FALLBACK_OVERLAP,
-                        separators=["\nĐiều ", "\nKhoản ", "\n- ", "\n\n", "\n", ". ", " "],
+                    final_chunks.extend(
+                        [p.strip() for p in self._make_splitter().split_text(before) if p.strip()]
                     )
-                    final_chunks.extend([p.strip() for p in splitter.split_text(block_clean) if p.strip()])
 
-        return final_chunks
+            table = match.group(0).strip()
+            if table:
+                final_chunks.append(table)
+
+            last_end = match.end()
+
+        remainder = text[last_end:].strip()
+        if remainder:
+            if len(remainder) <= _MAX_CHILD_CHARS:
+                final_chunks.append(remainder)
+            else:
+                final_chunks.extend(
+                    [p.strip() for p in self._make_splitter().split_text(remainder) if p.strip()]
+                )
+
+        if not final_chunks:
+            if len(text.strip()) <= _MAX_CHILD_CHARS:
+                return [text.strip()]
+            return [p.strip() for p in self._make_splitter().split_text(text.strip()) if p.strip()]
+
+        return [c for c in final_chunks if c]

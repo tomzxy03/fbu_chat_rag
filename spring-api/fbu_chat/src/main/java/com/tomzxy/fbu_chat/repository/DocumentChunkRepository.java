@@ -118,6 +118,19 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UU
                      @Param("vectorThreshold") double vectorThreshold);
 
        /**
+        * Lấy tất cả parentId của các chunk thuộc sourceFile.
+        * Dùng để xác định parent blocks đã được dùng trong lượt trả lời trước,
+        * phục vụ follow-up "còn thông tin gì khác không?".
+        */
+       @Query(value = """
+                     SELECT DISTINCT parent_id
+                     FROM document_chunks
+                     WHERE source_file = :sourceFile
+                       AND parent_id IS NOT NULL
+                     """, nativeQuery = true)
+       List<UUID> findParentIdsBySourceFile(@Param("sourceFile") String sourceFile);
+
+       /**
         * Tổng hợp danh sách tài liệu đã ingest, group theo source_file.
         * Dùng Spring Data Projection để tránh constructor mapping phức tạp với native
         * query.

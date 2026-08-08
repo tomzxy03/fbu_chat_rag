@@ -2,9 +2,11 @@ package com.tomzxy.fbu_chat.controller;
 
 import com.tomzxy.fbu_chat.dto.DocumentImageDto;
 import com.tomzxy.fbu_chat.dto.DocumentSummaryDto;
+import com.tomzxy.fbu_chat.dto.ImageCategoryDto;
 import com.tomzxy.fbu_chat.dto.ImageUploadResponse;
 import com.tomzxy.fbu_chat.dto.IngestResponse;
 import com.tomzxy.fbu_chat.service.DocumentService;
+import com.tomzxy.fbu_chat.service.ImageCategoryService;
 import com.tomzxy.fbu_chat.service.ImageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,7 @@ public class DocumentController {
 
     private final DocumentService documentService;
     private final ImageService imageService;
+    private final ImageCategoryService categoryService;
 
     /**
      * POST /api/documents/ingest — ADMIN only (enforced by SecurityConfig)
@@ -32,6 +35,16 @@ public class DocumentController {
     public ResponseEntity<List<IngestResponse>> ingest(@RequestParam("files") MultipartFile[] files) {
         List<IngestResponse> responses = documentService.ingestDocuments(files);
         return ResponseEntity.ok(responses);
+    }
+
+    /**
+     * GET /api/documents/image-categories — Public
+     * Trả về danh sách category active cho dropdown upload UI.
+     * Frontend gọi 1 lần khi load trang admin, không cần hardcode.
+     */
+    @GetMapping("/image-categories")
+    public ResponseEntity<List<ImageCategoryDto>> listImageCategories() {
+        return ResponseEntity.ok(categoryService.listActive());
     }
 
     /**

@@ -31,4 +31,31 @@ public interface DocumentImageRepository extends JpaRepository<DocumentImage, UU
             @Param("queryVector") String queryVector,
             @Param("topK") int topK,
             @Param("threshold") double threshold);
+
+    /**
+     * Tìm ảnh tiếp theo trong cùng category, loại trừ các URL đã hiển thị.
+     * Dùng cho follow-up "còn ảnh khác không?" để search đúng ngữ cảnh (category)
+     * thay vì embed lại câu follow-up không có context.
+     * excludeUrls là mảng text[] của PostgreSQL.
+     */
+    @Query(value = """
+            SELECT minio_url AS url,
+                   caption,
+                   tags,
+                   category,
+                   1 - (tag_embedding <=> CAST(:queryVector AS vector)) AS score
+            FROM document_images
+            WHERE tag_embedding IS NOT NULL
+              AND category = :category
+              AND minio_url != ALL(CAST(:excludeUrls AS text[]))
+              AND 1 - (tag_embedding <=> CAST(:queryVector AS vector)) >= :threshold
+            ORDER BY tag_embedding <=> CAST(:queryVector AS vector)
+            LIMIT :topK
+            """, nativeQuery = true)
+    List<ImageResult> findSimilarImagesByCategory(
+            @Param("queryVector") String queryVector,
+            @Param("category") String category,
+            @Param("excludeUrls") String excludeUrls,
+            @Param("topK") int topK,
+            @Param("threshold") double threshold);
 }

@@ -19,7 +19,13 @@ RUN apt-get update && apt-get install -y \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-# Sử dụng mirror để tải nhanh hơn nếu cần, hoặc giữ nguyên như bạn đã làm
+
+# Cài torch CPU-only từ PyTorch index riêng (tránh tải bản CUDA nặng ~2GB)
+RUN pip install --no-cache-dir --prefer-binary \
+    torch==2.13.0 \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Cài các dependencies còn lại
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 COPY . .

@@ -156,7 +156,7 @@ public class SingleDocumentIngestorService {
             List<ChunkCandidate> batch = candidates.subList(i, toIndex);
 
             List<String> texts = batch.stream()
-                    .map(ChunkCandidate::getContent)
+                    .map(ChunkCandidate::getTextForEmbedding)   // child thuần nếu có, fallback content
                     .map(tokenizerService::segmentForEmbedding)
                     .collect(Collectors.toList());
             List<List<Float>> embeddings = getEmbeddingsFromPython(texts);
@@ -194,13 +194,37 @@ public class SingleDocumentIngestorService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        ResponseEntity<EmbeddingResponse> response = aiRestTemplate.exchange(
-                aiBaseUrl + "/v1/embeddings",
-                HttpMethod.POST,
-                new HttpEntity<>(req, headers),
-                EmbeddingResponse.class);
+        int maxAttempts = 3;
+        long delayMs = 2_000;   // 2s → 4s → nhảy qua
+        Exception lastException = null;
 
-        return response.getBody() != null ? response.getBody().getEmbeddings() : null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                ResponseEntity<EmbeddingResponse> response = aiRestTemplate.exchange(
+                        aiBaseUrl + "/v1/embeddings",
+                        HttpMethod.POST,
+                        new HttpEntity<>(req, headers),
+                        EmbeddingResponse.class);
+
+                return response.getBody() != null ? response.getBody().getEmbeddings() : null;
+
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("Embedding call thất bại (lần {}/{}): {}", attempt, maxAttempts, e.getMessage());
+
+                if (attempt < maxAttempts) {
+                    try {
+                        Thread.sleep(delayMs * attempt);  // 2s, 4s (exponential backoff đơn giản)
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Ingest bị gián đoạn trong khi chờ retry", ie);
+                    }
+                }
+            }
+        }
+
+        throw new RuntimeException("Không thể lấy embedding sau " + maxAttempts + " lần thử: "
+                + (lastException != null ? lastException.getMessage() : "unknown"), lastException);
     }
 
     private static float[] toFloatArray(List<Float> vec) {

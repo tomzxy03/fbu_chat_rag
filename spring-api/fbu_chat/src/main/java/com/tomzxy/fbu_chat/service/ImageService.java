@@ -15,7 +15,6 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -23,35 +22,27 @@ import java.util.stream.Collectors;
 @Service
 public class ImageService {
     private static final int MIN_CAPTION_LENGTH = 10;
-    private static final Set<String> ALLOWED_CATEGORIES = Set.of(
-            "co_so_vat_chat",
-            "khuon_vien",
-            "giang_duong",
-            "thu_vien",
-            "phong_thuc_hanh",
-            "the_thao",
-            "su_kien",
-            "logo",
-            "tai_lieu",
-            "khac");
 
     private final StorageService storageService;
     private final DocumentImageRepository imageRepository;
     private final RestTemplate aiRestTemplate;
     private final String aiBaseUrl;
     private final VietnameseTokenizerService tokenizerService;
+    private final ImageCategoryService categoryService;
 
     public ImageService(
             StorageService storageService,
             DocumentImageRepository imageRepository,
             RestTemplate aiRestTemplate,
             @Qualifier("aiServiceBaseUrl") String aiBaseUrl,
-            VietnameseTokenizerService tokenizerService) {
+            VietnameseTokenizerService tokenizerService,
+            ImageCategoryService categoryService) {
         this.storageService = storageService;
         this.imageRepository = imageRepository;
         this.aiRestTemplate = aiRestTemplate;
         this.aiBaseUrl = aiBaseUrl;
         this.tokenizerService = tokenizerService;
+        this.categoryService = categoryService;
     }
 
     @Transactional
@@ -123,8 +114,8 @@ public class ImageService {
         if (category == null || category.isBlank()) {
             throw new IllegalArgumentException("Category ảnh không được để trống");
         }
-        if (!ALLOWED_CATEGORIES.contains(category.trim())) {
-            throw new IllegalArgumentException("Category ảnh không hợp lệ");
+        if (!categoryService.isValidCode(category.trim())) {
+            throw new IllegalArgumentException("Category ảnh không hợp lệ hoặc không còn active");
         }
     }
 
