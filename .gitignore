@@ -7,3 +7,5 @@ spring-api/fbu_chat/target/
 spring-api/fbu_chat/docs
 spring-api/fbu_chat/require.md
 chat-ui/require.md
+# CocCoc JAR chỉ tồn tại trên server — không commit
+spring-api/fbu_chat/libs/
