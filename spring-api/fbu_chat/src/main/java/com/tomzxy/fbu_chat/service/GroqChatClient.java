@@ -22,7 +22,7 @@ import java.util.Map;
 @SuppressWarnings("unchecked")
 public class GroqChatClient {
 
-    static final String GROQ_MODEL = "llama-3.3-70b-versatile";
+    static final String GROQ_MODEL = "openai/gpt-oss-120b";
 
     private final RestTemplate groqRestTemplate;
 
