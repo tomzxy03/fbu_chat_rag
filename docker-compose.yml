@@ -44,18 +44,7 @@ services:
       - /home/debian-server/coccoc-runtime:/app/libs:ro
       - /home/debian-server/coccoc-install/share/tokenizer/dicts:/usr/share/tokenizer/dicts:ro
       - /home/debian-server/coccoc-install/share/tokenizer/dicts:/usr/local/share/tokenizer/dicts:ro
-    ports:
-      - "8080:8080"
-    depends_on:
-      minio:
-        condition: service_healthy
-      fbuai:
-        condition: service_healthy
-    environment:
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:${POSTGRES_PORT:-5432}/${POSTGRES_DB}?currentSchema=public,extensions&sslmode=disable
-      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
-      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+    ports: 
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
       - MINIO_ENDPOINT=${MINIO_ENDPOINT}
       - MINIO_EXTERNAL_URL=${MINIO_EXTERNAL_URL:-/minio}
