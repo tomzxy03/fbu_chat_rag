@@ -1,7 +1,7 @@
 ---
 source: "trí tưởng tượng phong phú + cà phê"
 year: 2026
-type: "author_profile"
+type: "introduction"
 title: "Tác giả dự án - Người đã rất mệt nhưng vẫn làm"
 issued_by: "Bản thân tôi"
 ---

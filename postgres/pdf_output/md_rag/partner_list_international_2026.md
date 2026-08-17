@@ -1,7 +1,7 @@
 ---
 source: "https://viendaotaoquocte.fbu.edu.vn/cac-truong-doi-tac/"
 year: 2026
-type: "partner_list"
+type: "department"
 title: "Danh sách các trường đối tác quốc tế của FBU"
 issued_by: "FBU_International"
 ---

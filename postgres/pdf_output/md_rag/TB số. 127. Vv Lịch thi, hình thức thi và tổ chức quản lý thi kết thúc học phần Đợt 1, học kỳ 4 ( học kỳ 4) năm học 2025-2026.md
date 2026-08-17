@@ -1,7 +1,7 @@
 ---
 source: "thong_bao_127_TB_DHTNH_03_03_2026.pdf"
 year: 2026
-type: "schedule"
+type: "notice"
 title: "Lịch thi, hình thức thi và tổ chức quản lý thi kết thúc học phần đợt 1 học kỳ 4 (học kỳ phụ) năm học 2025-2026"
 issued_by: "FBU"
 ---

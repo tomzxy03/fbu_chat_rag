@@ -1,7 +1,7 @@
 ---
 source: "https://vienngonngunuocngoai.fbu.edu.vn/gioi-thieu/lien-chi-doan-thanh-nien/"
 year: 2026
-type: "organization"
+type: "department"
 title: "Liên chi Đoàn Thanh niên Viện Ngôn ngữ nước ngoài FBU"
 issued_by: "FBU_LL"
 ---

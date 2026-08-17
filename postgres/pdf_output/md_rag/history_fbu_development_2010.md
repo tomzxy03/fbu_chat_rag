@@ -1,7 +1,7 @@
 ---
 source: "https://fbu.talentnetwork.vn/lich-su-35a5172d/vi"
 year: 2010
-type: "history"
+type: "introduction"
 title: "Lịch sử phát triển Trường Đại học Tài chính - Ngân hàng Hà Nội"
 issued_by: "FBU"
 ---

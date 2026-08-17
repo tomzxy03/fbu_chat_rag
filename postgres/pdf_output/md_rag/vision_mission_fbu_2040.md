@@ -1,7 +1,7 @@
 ---
 source: "https://fbu.talentnetwork.vn/su-menh-tam-nhin-35A5172E/vi"
 year: 2024
-type: "vision"
+type: "introduction"
 title: "Sứ mệnh, tầm nhìn và giá trị cốt lõi của Trường Đại học Tài chính - Ngân hàng Hà Nội"
 issued_by: "FBU"
 ---

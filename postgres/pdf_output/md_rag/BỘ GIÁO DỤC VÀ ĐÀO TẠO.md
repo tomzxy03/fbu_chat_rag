@@ -1,7 +1,7 @@
 ---
 source: "thong_bao_tuyen_sinh_thac_si_2026.pdf"
 year: 2026
-type: "announcement"
+type: "notice"
 title: "Kế hoạch tuyển sinh đào tạo trình độ thạc sĩ năm 2026"
 issued_by: "FBU"
 ---

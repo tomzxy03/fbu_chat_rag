@@ -1,7 +1,7 @@
 ---
 source: "thong_bao_509_TB_DHTNH_22_12_2025.pdf"
 year: 2025
-type: "schedule"
+type: "notice"
 title: "Lịch thi lại, thi cải thiện đợt 2 học kỳ I năm học 2025-2026"
 issued_by: "FBU"
 ---

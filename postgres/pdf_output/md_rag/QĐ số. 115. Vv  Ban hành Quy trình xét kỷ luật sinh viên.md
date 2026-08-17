@@ -1,7 +1,7 @@
 ---
 source: "quyet_dinh_115_QD_DHTNH_04_01_2026.pdf"
 year: 2026
-type: "procedure"
+type: "regulation"
 title: "Quy trình xét kỷ luật sinh viên"
 issued_by: "FBU"
 ---

@@ -33,11 +33,13 @@ public class QueryClassifierService {
             + "- \"FBU_INFO\": câu hỏi cần tra cứu tài liệu nội bộ FBU (học phí, lịch thi, học bổng, quy chế, ngành học, cơ sở vật chất, giới thiệu trường, tác giả/người tạo chatbot, thông tin dự án)\n"
             + "- \"GENERAL_CHAT\": chào hỏi, cảm ơn, tạm biệt, hỏi AI là gì, trò chuyện xã giao, câu đùa\n\n"
             + "Trường 'docType' (chỉ điền khi intent=FBU_INFO, ngược lại để null):\n"
-            + "- \"introduction\": giới thiệu trường, khoa, chuyên ngành, lịch sử, cơ sở vật chất\n"
-            + "- \"department\": bộ môn, khoa/viện, học phần, môn học\n"
-            + "- \"regulation\": quy chế, quy định, học phí, học bổng, thi cử, tốt nghiệp\n"
-            + "- null: câu hỏi chung hoặc không thuộc nhóm trên\n\n"
-            + "Chỉ trả về JSON hợp lệ, không giải thích. Ví dụ: {\"intent\":\"FBU_INFO\",\"docType\":\"regulation\"}";
+            + "- \"regulation\": quy chế, quy định, quyết định, học phí, học bổng, miễn giảm, kỷ luật, xác nhận, thẻ sinh viên, tốt nghiệp, thực tập, điểm rèn luyện, khen thưởng\n"
+            + "- \"notice\": thông báo, lịch thi, lịch học, lịch nghỉ, đăng ký học phần, nộp chứng chỉ, rà soát, tuyển sinh\n"
+            + "- \"introduction\": giới thiệu trường, lịch sử, sứ mệnh, tầm nhìn, cơ sở vật chất, khuôn viên\n"
+            + "- \"department\": bộ môn, khoa, viện, học phần, môn học, chuyên ngành, giảng viên, đoàn thanh niên\n"
+            + "- null: câu hỏi chung hoặc không xác định được nhóm\n\n"
+            + "Chỉ trả về JSON hợp lệ, không giải thích thêm.\n"
+            + "Ví dụ: {\"intent\":\"FBU_INFO\",\"docType\":\"regulation\"}";
 
     public QueryClassification classify(String query) {
         List<Map<String, Object>> messages = new ArrayList<>();
@@ -62,8 +64,10 @@ public class QueryClassifierService {
             String docType = null;
             JsonNode docTypeNode = node.path("docType");
             if (!docTypeNode.isNull() && !docTypeNode.isMissingNode()) {
-                String dt = docTypeNode.asText("").toLowerCase(Locale.ROOT);
-                if (dt.contains("introduction") || dt.contains("department") || dt.contains("regulation")) {
+                String dt = docTypeNode.asText("").toLowerCase(Locale.ROOT).trim();
+                // Accepted values must match what's stored in document_chunks.doc_type
+                if (dt.equals("regulation") || dt.equals("notice")
+                        || dt.equals("introduction") || dt.equals("department")) {
                     docType = dt;
                 }
             }

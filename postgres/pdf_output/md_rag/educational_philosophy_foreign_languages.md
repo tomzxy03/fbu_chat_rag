@@ -1,7 +1,7 @@
 ---
 source: "https://vienngonngunuocngoai.fbu.edu.vn/gioi-thieu/triet-li-giao-duc/"
 year: 2026
-type: "philosophy"
+type: "introduction"
 title: "Triết lí giáo dục Viện Ngôn ngữ nước ngoài FBU"
 issued_by: "FBU_LL"
 ---

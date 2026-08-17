@@ -1,7 +1,7 @@
 ---
 source: "https://vienngonngunuocngoai.fbu.edu.vn/gioi-thieu/doi-ngu-giang-vien/"
 year: 2026
-type: "staff_directory"
+type: "department"
 title: "Đội ngũ giảng viên Viện Ngôn ngữ nước ngoài FBU"
 issued_by: "FBU_LL"
 ---

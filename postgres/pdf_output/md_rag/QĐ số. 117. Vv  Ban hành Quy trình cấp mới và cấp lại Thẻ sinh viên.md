@@ -1,7 +1,7 @@
 ---
 source: "quyet_dinh_117_QD_DHTNH_02_03_2026.pdf"
 year: 2026
-type: "procedure"
+type: "regulation"
 title: "Quy trình cấp mới và cấp lại Thẻ sinh viên"
 issued_by: "FBU"
 ---

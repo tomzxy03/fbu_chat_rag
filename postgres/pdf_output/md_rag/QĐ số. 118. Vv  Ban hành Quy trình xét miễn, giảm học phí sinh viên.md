@@ -1,7 +1,7 @@
 ---
 source: "quyet_dinh_118_QD_DHTNH_03_2026.pdf"
 year: 2026
-type: "procedure"
+type: "regulation"
 title: "Quy trình xét miễn, giảm học phí sinh viên"
 issued_by: "FBU"
 ---

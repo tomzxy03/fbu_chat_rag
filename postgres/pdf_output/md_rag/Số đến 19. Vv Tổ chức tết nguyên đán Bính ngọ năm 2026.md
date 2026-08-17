@@ -1,7 +1,7 @@
 ---
 source: "cong_van_19_BGDDT_2026.pdf"
 year: 2026
-type: "guidance"
+type: "regulation"
 title: "Tổ chức Tết Nguyên đán Bính Ngọ năm 2026"
 issued_by: "BO_GDĐT"
 ---
