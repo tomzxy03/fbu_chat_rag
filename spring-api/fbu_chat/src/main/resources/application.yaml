@@ -49,7 +49,7 @@ app:
     url: ${AI_SERVICE_URL:http://localhost:8001}
     timeout-seconds: 60
   jwt:
-    secret: ${JWT_SECRET:fbu-chat-super-secret-key-2026-must-be-at-least-32-bytes-long}
+    secret: ${JWT_SECRET:6VtIpZ5MgwA7q7TU5WVNOvUUWeU/YdqRtkmAwjIhyk0=}
     access-expiration-ms: 604800000   # 7 days
     refresh-expiration-ms: 2592000000 # 30 days
   cors:

@@ -89,7 +89,6 @@ services:
     container_name: fbu_minio
     env_file:
       - .env
-     # Đảm bảo .env chứa MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, MINIO_ENDPOINT
     ports:
       - "9000:9000"       # Port dành cho API kết nối từ Spring Boot
       - "9001:9001"       # Port dành cho giao diện Web Console
